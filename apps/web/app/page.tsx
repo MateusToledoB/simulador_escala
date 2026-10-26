@@ -5,6 +5,7 @@ import { escalaTexto, lerEscala } from "@/lib/escala";
 import type { LinhaPEC, Resultado as R } from "@/lib/types";
 import Formulario, { Linha, novaLinha } from "./Formulario";
 import Resultado from "./Resultado";
+import FormatoPEC from "./FormatoPEC";
 
 type Centro = { cr: string; linhas: LinhaPEC[] };
 
@@ -99,6 +100,8 @@ export default function Home() {
           </label>
           <button onClick={() => { setLinhas([]); setCentros([]); setResultado(null); }}>Limpar</button>
         </div>
+
+        <FormatoPEC />
 
         <Formulario linhas={linhas} onChange={setLinhas} />
 
