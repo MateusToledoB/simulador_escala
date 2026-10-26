@@ -1,0 +1,110 @@
+/* tema único, claro: fundo branco, blocos separados por borda e cinza leve */
+:root {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --subtle: #f7f8fa;
+  --border: #e5e7eb;
+  --text: #1c2430;
+  --muted: #64707f;
+  --primary: #1f5eff;
+  --primary-soft: #eef3ff;
+  --danger: #c62f2f;
+  --danger-soft: #fdecec;
+  --ok: #1d7a46;
+  --ok-soft: #e8f6ee;
+  --warn-soft: #fff7e3;
+  --radius: 10px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 64px; }
+
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+h3 { font-size: 15px; margin: 0 0 8px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.spacer { flex: 1; }
+
+button, .botao {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+button:hover, .botao:hover { border-color: var(--primary); }
+button.primario { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+button.primario:disabled { opacity: .6; cursor: wait; }
+button.icone { padding: 6px 10px; color: var(--muted); }
+button.icone:hover { color: var(--danger); border-color: var(--danger); }
+
+input, select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color: var(--primary); }
+
+.tabela-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+thead th { background: var(--subtle); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.escala { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.escala input[type="time"] { width: 100px; }
+.escala .texto { width: 340px; }
+.preview { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: ui-monospace, Consolas, monospace; }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.kpi { background: var(--subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.kpi .valor { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .rotulo { color: var(--muted); font-size: 13px; }
+
+.tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--primary-soft); color: var(--primary); }
+.tag.erro { background: var(--danger-soft); color: var(--danger); }
+.tag.ok { background: var(--ok-soft); color: var(--ok); }
+
+.aviso { background: var(--warn-soft); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
+.erro-msg { background: var(--danger-soft); color: var(--danger); border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; }
+
+.barras { display: grid; grid-template-columns: 48px 1fr 64px; gap: 6px 10px; align-items: center; }
+.barra { height: 14px; background: var(--danger); border-radius: 4px; opacity: .8; }
+
+.sugestoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.frases { margin: 0 0 12px; padding-left: 18px; }
+.frases li { margin-bottom: 6px; }
+details summary { cursor: pointer; color: var(--primary); }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+
+@media (max-width: 640px) {
+  main { padding: 20px 16px 48px; }
+  .escala .texto { width: 100%; }
+}

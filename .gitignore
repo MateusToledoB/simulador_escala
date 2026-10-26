@@ -1,0 +1,8 @@
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.env*.local
+
+# dados da PEC (salários por cargo): não versionar
+apps/api/storage/*.xlsx
