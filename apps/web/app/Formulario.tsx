@@ -2,7 +2,7 @@
 
 import { DIAS_LABEL, Escala, escalaTexto } from "@/lib/escala";
 
-export type Linha = { id: number; equipe: string; cargo: string; escala: Escala; quantidade: number };
+export type Linha = { id: number; cargo: string; escala: Escala; quantidade: number };
 
 type Props = {
   linhas: Linha[];
@@ -12,7 +12,6 @@ type Props = {
 let proximoId = 1;
 export const novaLinha = (parcial: Partial<Linha> = {}): Linha => ({
   id: proximoId++,
-  equipe: "",
   cargo: "",
   escala: { tipo: "semana", de: 0, ate: 4, entrada: "07:30", saida: "17:18" },
   quantidade: 1,
@@ -81,8 +80,7 @@ export default function Formulario({ linhas, onChange }: Props) {
       <table>
         <thead>
           <tr>
-            <th style={{ width: "18%" }}>Equipe</th>
-            <th style={{ width: "22%" }}>Cargo</th>
+            <th style={{ width: "30%" }}>Cargo</th>
             <th>Horário / escala</th>
             <th className="num" style={{ width: 90 }}>Quantidade</th>
             <th style={{ width: 44 }} />
@@ -91,10 +89,6 @@ export default function Formulario({ linhas, onChange }: Props) {
         <tbody>
           {linhas.map((l) => (
             <tr key={l.id}>
-              <td>
-                <input value={l.equipe} placeholder="Ex.: Limpeza 1º turno" style={{ width: "100%" }}
-                       onChange={(e) => atualizar(l.id, { equipe: e.target.value })} aria-label="Equipe" />
-              </td>
               <td>
                 <input value={l.cargo} placeholder="Ex.: Auxiliar de limpeza" style={{ width: "100%" }}
                        onChange={(e) => atualizar(l.id, { cargo: e.target.value })} aria-label="Cargo" />

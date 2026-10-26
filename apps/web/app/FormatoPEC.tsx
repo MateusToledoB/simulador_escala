@@ -1,61 +1,97 @@
-// Como deve ser o xlsx da PEC para "Importar xlsx" (lido por apps/api/main.py: ler_linhas)
+"use client";
+
+// Popup com o formato do xlsx da PEC para "Importar xlsx" (lido por apps/api/main.py: ler_linhas)
+// e o download do modelo (GET /modelo).
+
+import { useRef } from "react";
 
 const COLUNAS = [
-  { nome: "SL_CR", uso: "Centro de resultado. As linhas são agrupadas por CR; com mais de um, você escolhe qual simular.",
-    exemplo: "10006 - RS - LPG - AGRALE - PLANTA AGRALE 1 (FRT)" },
-  { nome: "SL_DESC", uso: "Equipe (posto). O código do início (\"22383847 - \") é removido.",
-    exemplo: "22383847 - AGRALE LIMPEZA UNIDADE I" },
-  { nome: "QF_CARGO", uso: "Cargo. O código do início é removido.", exemplo: "14833188 - AUXILIAR DE LIMPEZA I - DIA" },
-  { nome: "Escala", uso: "Dias e horário de entrada e saída, em um dos formatos abaixo.",
+  { nome: "QF_CARGO", tipo: "Texto", uso: "Cargo. O código numérico do início é removido.",
+    exemplo: "14833188 - AUXILIAR DE LIMPEZA I - DIA" },
+  { nome: "Escala", tipo: "Texto", uso: "Dias e horário de entrada e saída (formatos abaixo).",
     exemplo: "ESCALA SEGUNDA - SEXTA (07:30 - 17:18)" },
-  { nome: "Quantidade", uso: "Número de pessoas do cargo nessa escala (número inteiro).", exemplo: "4" },
+  { nome: "Quantidade", tipo: "Número inteiro", uso: "Pessoas do cargo nessa escala.", exemplo: "4" },
+];
+
+const ESCALAS = [
+  { formato: "ESCALA <DIA> - <DIA> (HH:MM - HH:MM)", exemplo: "ESCALA SEGUNDA - SABADO (07:00 - 15:20)",
+    nota: "Dias corridos. Basta o início do dia (SEG, TER, QUA, QUI, SEX, SAB, DOM), com ou sem acento." },
+  { formato: "ESCALA N X M (HH:MM - HH:MM)", exemplo: "ESCALA 6 X 1 (07:30 - 16:00)",
+    nota: "Ciclo com N + M = 7. Os N dias de trabalho contam a partir de segunda." },
+  { formato: "Saída menor que a entrada", exemplo: "ESCALA SEGUNDA - SEXTA (22:00 - 06:00)",
+    nota: "Turno que vira a noite; pertence ao dia em que começa." },
 ];
 
 export default function FormatoPEC() {
-  return (
-    <details style={{ marginBottom: 16 }}>
-      <summary>Como deve ser o xlsx da PEC</summary>
-      <div className="aviso" style={{ background: "var(--subtle)", border: "1px solid var(--border)" }}>
-        <p style={{ marginTop: 0 }}>
-          Um arquivo <strong>.xlsx</strong> com o cabeçalho na <strong>primeira linha</strong> e uma linha por cargo e escala.
-          As colunas abaixo são obrigatórias; outras colunas (Salario, Total, QF_ID…) podem existir e são ignoradas.
-          O nome da coluna não diferencia maiúsculas, e acentos ou caracteres corrompidos do export são tolerados.
-        </p>
-        <div className="tabela-wrap">
-          <table>
-            <thead><tr><th>Coluna</th><th>O que é</th><th>Exemplo</th></tr></thead>
-            <tbody>
-              {COLUNAS.map((c) => (
-                <tr key={c.nome}>
-                  <td className="mono" style={{ fontWeight: 600 }}>{c.nome}</td>
-                  <td>{c.uso}</td>
-                  <td className="mono">{c.exemplo}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+  const dialogo = useRef<HTMLDialogElement>(null);
 
-        <h3 style={{ marginTop: 16 }}>Formatos aceitos na coluna Escala</h3>
-        <ul style={{ margin: 0 }}>
-          <li>
-            <span className="mono">ESCALA &lt;DIA&gt; - &lt;DIA&gt; (HH:MM - HH:MM)</span>: dias corridos, por exemplo{" "}
-            <span className="mono">ESCALA SEGUNDA - SABADO (07:00 - 15:20)</span>. Basta o início do nome do dia (SEG, TER, QUA,
-            QUI, SEX, SAB, DOM), com ou sem acento.
-          </li>
-          <li>
-            <span className="mono">ESCALA N X M (HH:MM - HH:MM)</span>: ciclo com N + M = 7, por exemplo{" "}
-            <span className="mono">ESCALA 6 X 1 (07:30 - 16:00)</span> (6 dias contados a partir de segunda).
-          </li>
-          <li>
-            Saída menor que a entrada é turno que vira a noite: <span className="mono">(22:00 - 06:00)</span>.
-          </li>
-          <li>
-            Linhas com escala fora desses formatos (12x36, vazia…) entram na soma de pessoas, mas ficam fora do cálculo e
-            aparecem em &quot;Sem horário reconhecido&quot;.
-          </li>
-        </ul>
-      </div>
-    </details>
+  return (
+    <>
+      <button onClick={() => dialogo.current?.showModal()}>Formato do xlsx</button>
+
+      <dialog ref={dialogo} className="modal" aria-labelledby="formato-titulo"
+              onClick={(e) => e.target === dialogo.current && dialogo.current.close()}>
+        <div className="modal-corpo">
+          <header className="modal-topo">
+            <div>
+              <h2 id="formato-titulo" style={{ margin: 0 }}>Formato do xlsx da PEC</h2>
+              <p className="muted" style={{ margin: "2px 0 0" }}>
+                Cabeçalho na primeira linha da primeira aba e uma linha por cargo e escala.
+              </p>
+            </div>
+            <button className="icone" aria-label="Fechar" onClick={() => dialogo.current?.close()}>✕</button>
+          </header>
+
+          <section>
+            <h3>1. Colunas necessárias</h3>
+            <div className="tabela-wrap">
+              <table>
+                <thead><tr><th>Coluna</th><th>Tipo</th><th>O que é</th><th>Exemplo</th></tr></thead>
+                <tbody>
+                  {COLUNAS.map((c) => (
+                    <tr key={c.nome}>
+                      <td><code className="coluna">{c.nome}</code></td>
+                      <td style={{ whiteSpace: "nowrap" }}>{c.tipo}</td>
+                      <td>{c.uso}</td>
+                      <td className="mono">{c.exemplo}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="muted" style={{ margin: "8px 0 0", fontSize: 13 }}>
+              Outras colunas (Salario, Total, QF_ID…) podem existir e são ignoradas. O nome da coluna não diferencia
+              maiúsculas e tolera acentos corrompidos do export.
+            </p>
+          </section>
+
+          <section>
+            <h3>2. Formatos da coluna Escala</h3>
+            <div className="formatos">
+              {ESCALAS.map((e) => (
+                <div key={e.formato} className="formato">
+                  <div className="mono" style={{ fontWeight: 600 }}>{e.formato}</div>
+                  <div className="mono muted">{e.exemplo}</div>
+                  <div style={{ fontSize: 13 }}>{e.nota}</div>
+                </div>
+              ))}
+            </div>
+            <p className="aviso" style={{ fontSize: 13 }}>
+              Escalas fora desses formatos (12x36, vazia…) entram na soma de pessoas, mas ficam fora do cálculo e
+              aparecem em &quot;Sem horário reconhecido&quot;.
+            </p>
+          </section>
+
+          <footer className="modal-rodape">
+            <span className="muted" style={{ fontSize: 13 }}>
+              O modelo traz o cabeçalho, linhas de exemplo e uma aba com estas instruções.
+            </span>
+            <span className="spacer" />
+            <button onClick={() => dialogo.current?.close()}>Fechar</button>
+            <a className="botao primario" href="/api/modelo" download="modelo_pec.xlsx">Baixar modelo (.xlsx)</a>
+          </footer>
+        </div>
+      </dialog>
+    </>
   );
 }

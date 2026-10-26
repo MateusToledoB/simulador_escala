@@ -9,14 +9,16 @@ from core.settings import settings
 # ---------------------------------------------------------------------------
 # LEITURA DO EXCEL (PEC)
 # ---------------------------------------------------------------------------
-def _coluna(df, nome):
-    """Acha a coluna ignorando acentos (o export vem com caracteres corrompidos)."""
+def _coluna(df, nome, obrigatoria=True):
+    """Acha a coluna ignorando acentos (o export vem com caracteres corrompidos). Opcional ausente -> None."""
     ascii_ = lambda s: "".join(ch for ch in str(s) if ch.isascii()).lower()
     alvo = ascii_(nome)
     for c in df.columns:
         if ascii_(c) == alvo:
             return c
-    raise KeyError(nome)
+    if obrigatoria:
+        raise KeyError(nome)
+    return None
 
 
 DIAS = {"SEG": 0, "TER": 1, "QUA": 2, "QUI": 3, "SEX": 4, "SAB": 5, "DOM": 6}
@@ -56,29 +58,34 @@ def ler_escala(texto):
 
 def carregar_centros(arquivo=settings.ARQUIVO, centros=settings.CENTROS_RESULTADO):
     """CRs a calcular: os de 'centros', ou todos os da PEC, na ordem em que aparecem."""
-    if centros:
-        return list(centros)
-    df = pd.read_excel(arquivo, dtype=str)
-    return list(dict.fromkeys(df[_coluna(df, "SL_CR")].dropna().str.strip()))
+    return list(centros) if centros else list(ler_linhas(arquivo))
+
+
+SEM_CR, SEM_EQUIPE = "Quadro", "Equipe"  # quando a PEC não tem SL_CR / SL_DESC
 
 
 def ler_linhas(arquivo=settings.ARQUIVO):
     """
     Lê a PEC e devolve as linhas por CR: {cr: [{"equipe", "cargo", "escala", "quantidade"}]}, na ordem da planilha.
-    Equipe vem de SL_DESC e cargo de QF_CARGO, sem o código numérico.
+    Obrigatórias: QF_CARGO, Escala e Quantidade. SL_CR (agrupa por CR) e SL_DESC (equipe) são opcionais:
+    sem elas, tudo fica num CR SEM_CR e numa equipe SEM_EQUIPE. Linhas sem cargo ou sem quantidade são ignoradas.
+    Equipe e cargo saem sem o código numérico do início.
     """
     df = pd.read_excel(arquivo, dtype=str)
-    c_cr = _coluna(df, "SL_CR")
-    c_equipe = _coluna(df, "SL_DESC")
     c_cargo = _coluna(df, "QF_CARGO")
     c_escala = _coluna(df, "Escala")
     c_qtd = _coluna(df, "Quantidade")
+    c_cr = _coluna(df, "SL_CR", obrigatoria=False)
+    c_equipe = _coluna(df, "SL_DESC", obrigatoria=False)
+
+    texto = lambda row, c: " ".join(str(row[c]).split()) if c and pd.notna(row[c]) else ""
+    sem_codigo = lambda s: re.sub(r"^\d+\s*-\s*", "", s)
 
     por_cr = defaultdict(list)
-    for _, row in df[df[c_cr].notna()].iterrows():
-        por_cr[row[c_cr].strip()].append({
-            "equipe": re.sub(r"^\d+\s*-\s*", "", " ".join(str(row[c_equipe]).split())),  # tira o código da equipe
-            "cargo": re.sub(r"^\d+\s*-\s*", "", str(row[c_cargo])),  # tira o código do cargo
+    for _, row in df[df[c_cargo].notna() & df[c_qtd].notna()].iterrows():
+        por_cr[texto(row, c_cr) or SEM_CR].append({
+            "equipe": sem_codigo(texto(row, c_equipe)) or SEM_EQUIPE,
+            "cargo": sem_codigo(texto(row, c_cargo)),
             "escala": row[c_escala],
             "quantidade": int(float(row[c_qtd])),
         })
@@ -95,7 +102,7 @@ def montar_equipes(linhas):
     for linha in linhas:
         escala = ler_escala(linha["escala"])
         if not escala:
-            sem_horario.append((linha["equipe"], linha["cargo"], linha["escala"], linha["quantidade"]))
+            sem_horario.append((linha.get("equipe", ""), linha["cargo"], linha["escala"], linha["quantidade"]))
             continue
         dias, ini, fim = escala
         equipes.append({**linha, "dias": dias, "ini": ini, "fim": fim})

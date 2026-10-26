@@ -10,10 +10,10 @@ import FormatoPEC from "./FormatoPEC";
 type Centro = { cr: string; linhas: LinhaPEC[] };
 
 const EXEMPLO: Linha[] = [
-  novaLinha({ equipe: "Limpeza", cargo: "Auxiliar de limpeza", quantidade: 4 }),
-  novaLinha({ equipe: "Limpeza", cargo: "Auxiliar de limpeza - 6x1", quantidade: 2,
+  novaLinha({ cargo: "Auxiliar de limpeza", quantidade: 4 }),
+  novaLinha({ cargo: "Auxiliar de limpeza - 6x1", quantidade: 2,
               escala: { tipo: "ciclo", trabalha: 6, entrada: "07:30", saida: "16:00" } }),
-  novaLinha({ equipe: "Limpeza", cargo: "Líder de limpeza", quantidade: 1,
+  novaLinha({ cargo: "Líder de limpeza", quantidade: 1,
               escala: { tipo: "semana", de: 0, ate: 4, entrada: "08:00", saida: "17:48" } }),
 ];
 
@@ -35,7 +35,7 @@ export default function Home() {
   const arquivo = useRef<HTMLInputElement>(null);
 
   const usarCentro = (c: Centro) => {
-    setLinhas(c.linhas.map((l) => novaLinha({ ...l, escala: lerEscala(l.escala) })));
+    setLinhas(c.linhas.map((l) => novaLinha({ cargo: l.cargo, quantidade: l.quantidade, escala: lerEscala(l.escala) })));
     setResultado(null);
   };
 
@@ -59,7 +59,6 @@ export default function Home() {
     setCarregando(true);
     const corpo = {
       linhas: linhas.map((l) => ({
-        equipe: l.equipe.trim() || "Equipe",
         cargo: l.cargo.trim(),
         escala: escalaTexto(l.escala),
         quantidade: l.quantidade,
@@ -80,7 +79,7 @@ export default function Home() {
     <main>
       <h1>Simulador de escala</h1>
       <p className="sub">
-        Informe o quadro como na PEC (equipe, cargo, horário/escala e quantidade de pessoas). O simulador leva cada
+        Informe o quadro como na PEC (cargo, horário/escala e quantidade de pessoas). O simulador leva cada
         cargo para 5x2 de 42h, mede o rombo de cobertura e sugere contratações.
       </p>
 
@@ -93,6 +92,7 @@ export default function Home() {
               {centros.map((c, i) => <option key={c.cr} value={i}>{c.cr} ({c.linhas.length} linhas)</option>)}
             </select>
           )}
+          <FormatoPEC />
           <label className="botao">
             Importar xlsx da PEC
             <input ref={arquivo} type="file" accept=".xlsx,.xls" hidden
@@ -101,12 +101,10 @@ export default function Home() {
           <button onClick={() => { setLinhas([]); setCentros([]); setResultado(null); }}>Limpar</button>
         </div>
 
-        <FormatoPEC />
-
         <Formulario linhas={linhas} onChange={setLinhas} />
 
         <div className="row" style={{ marginTop: 16 }}>
-          <button onClick={() => setLinhas([...linhas, novaLinha({ equipe: linhas.at(-1)?.equipe ?? "" })])}>
+          <button onClick={() => setLinhas([...linhas, novaLinha()])}>
             + Adicionar linha
           </button>
           <span className="muted">

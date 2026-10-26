@@ -1,11 +1,10 @@
 // Formato da resposta de POST /simular (apps/api/api.py: resultado_json)
 
-export type LinhaPEC = { equipe: string; cargo: string; escala: string; quantidade: number };
+export type LinhaPEC = { cargo: string; escala: string; quantidade: number };
 
 export type Turno = { entrada: string; saida: string; intervalo: string; horas: string; descricao: string };
 
 export type Cargo = {
-  equipe: string;
   cargo: string;
   escala: string;
   quantidade: number;
@@ -34,7 +33,6 @@ export type Contratacoes = {
 export type Resultado = {
   config: { limite_horas_semana: number; escala: string; intervalo_maximo: string; corte_maximo_min: number };
   total_pessoas: number;
-  por_equipe: { equipe: string; quantidade: number }[];
   cargos: Cargo[];
   sem_horario: LinhaPEC[];
   rombo: {

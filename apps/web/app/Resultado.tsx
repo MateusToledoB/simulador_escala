@@ -38,15 +38,12 @@ function Sugestao({ titulo, descricao, s }: { titulo: string; descricao: string;
 }
 
 export default function Resultado({ r }: { r: R }) {
-  const porEquipe = new Map<string, Cargo[]>();
-  r.cargos.forEach((c) => porEquipe.set(c.equipe, [...(porEquipe.get(c.equipe) ?? []), c]));
   const maxDia = Math.max(1, ...r.rombo.por_dia.map((d) => d.valor));
-  const totalEquipe = new Map(r.por_equipe.map((e) => [e.equipe, e.quantidade]));
 
   return (
     <>
       <div className="kpis">
-        <div className="kpi"><div className="valor">{r.total_pessoas}</div><div className="rotulo">colaboradores em {r.por_equipe.length} equipe(s)</div></div>
+        <div className="kpi"><div className="valor">{r.total_pessoas}</div><div className="rotulo">colaboradores em {r.cargos.length + r.sem_horario.length} cargo(s)</div></div>
         <div className="kpi"><div className="valor">{r.rombo.total_horas}</div><div className="rotulo">descobertas por semana</div></div>
         <div className="kpi"><div className="valor">{(r.rombo.percentual * 100).toFixed(1)}%</div><div className="rotulo">das {r.rombo.horas_demandadas} cobertas hoje</div></div>
         <div className="kpi"><div className="valor">{r.rombo.colaboradores_equivalentes.toLocaleString("pt-BR")}</div><div className="rotulo">colaborador(es) de {r.config.limite_horas_semana}h equivalentes</div></div>
@@ -67,15 +64,8 @@ export default function Resultado({ r }: { r: R }) {
               </tr>
             </thead>
             <tbody>
-              {[...porEquipe.entries()].map(([equipe, cargos]) => (
-                <Fragment key={equipe}>
-                  <tr>
-                    <td colSpan={7} style={{ background: "var(--subtle)", fontWeight: 600 }}>
-                      {equipe} <span className="muted">({totalEquipe.get(equipe)} colaborador(es))</span>
-                    </td>
-                  </tr>
-                  {cargos.map((c, i) => (
-                    <tr key={equipe + i}>
+                  {r.cargos.map((c, i) => (
+                    <tr key={i}>
                       <td>{c.cargo}<div className="preview">{c.escala}</div></td>
                       <td className="num">{c.quantidade}</td>
                       <td>
@@ -95,8 +85,6 @@ export default function Resultado({ r }: { r: R }) {
                       <td><Corte c={c} /></td>
                     </tr>
                   ))}
-                </Fragment>
-              ))}
             </tbody>
           </table>
         </div>
@@ -104,7 +92,7 @@ export default function Resultado({ r }: { r: R }) {
           <div className="aviso">
             <strong>Sem horário reconhecido (fora do cálculo):</strong>
             <ul style={{ margin: "6px 0 0" }}>
-              {r.sem_horario.map((s, i) => <li key={i}>{s.equipe} / {s.cargo} ({s.quantidade}): <span className="mono">{s.escala || "(vazio)"}</span></li>)}
+              {r.sem_horario.map((s, i) => <li key={i}>{s.cargo} ({s.quantidade}): <span className="mono">{s.escala || "(vazio)"}</span></li>)}
             </ul>
           </div>
         )}

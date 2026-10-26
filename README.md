@@ -23,22 +23,21 @@ O site chama `/api/*`, que o Next repassa para a API (`API_URL`, padrão `http:/
 
 ## API
 
-- `POST /simular`: `{"linhas": [{"equipe", "cargo", "escala", "quantidade"}]}` devolve o resultado da simulação.
+- `POST /simular`: `{"linhas": [{"cargo", "escala", "quantidade"}]}` devolve o resultado da simulação.
   A escala segue o texto da PEC: `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` ou `ESCALA 6 X 1 (07:30 - 16:00)`.
-- `POST /importar`: recebe o xlsx da PEC (colunas SL_CR, SL_DESC, QF_CARGO, Escala, Quantidade) e devolve as linhas por CR.
+- `GET /modelo`: baixa o xlsx modelo da PEC (cabeçalho, linhas de exemplo e aba de instruções).
+- `POST /importar`: recebe o xlsx da PEC e devolve as linhas (colunas QF_CARGO, Escala, Quantidade).
 
 ## Formato do xlsx da PEC
 
-Arquivo `.xlsx` com o cabeçalho na primeira linha e uma linha por cargo e escala. Colunas obrigatórias
-(outras, como Salario, Total e QF_ID, são ignoradas; o nome não diferencia maiúsculas e tolera acentos corrompidos):
+Arquivo `.xlsx` com o cabeçalho na primeira linha e uma linha por cargo e escala. Outras colunas, como Salario,
+Total e QF_ID, são ignoradas; o nome não diferencia maiúsculas e tolera acentos corrompidos.
 
-| Coluna | O que é | Exemplo |
-|---|---|---|
-| `SL_CR` | Centro de resultado; as linhas são agrupadas por CR | `10006 - RS - LPG - AGRALE - PLANTA AGRALE 1 (FRT)` |
-| `SL_DESC` | Equipe (posto); o código do início é removido | `22383847 - AGRALE LIMPEZA UNIDADE I` |
-| `QF_CARGO` | Cargo; o código do início é removido | `14833188 - AUXILIAR DE LIMPEZA I - DIA` |
-| `Escala` | Dias e horário de entrada e saída | `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` |
-| `Quantidade` | Pessoas do cargo nessa escala (inteiro) | `4` |
+| Coluna | Tipo | O que é | Exemplo |
+|---|---|---|---|
+| `QF_CARGO` | Texto | Cargo; o código do início é removido | `14833188 - AUXILIAR DE LIMPEZA I - DIA` |
+| `Escala` | Texto | Dias e horário de entrada e saída | `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` |
+| `Quantidade` | Número inteiro | Pessoas do cargo nessa escala | `4` |
 
 Formatos aceitos em `Escala`:
 

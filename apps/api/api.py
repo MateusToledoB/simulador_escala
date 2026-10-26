@@ -1,15 +1,18 @@
 """
-API do simulador de escala: recebe as linhas da PEC (equipe, cargo, escala, quantidade) e devolve o
+API do simulador de escala: recebe as linhas da PEC (cargo, escala, quantidade) e devolve o
 resultado de main.calcular em JSON, com os mesmos textos do relatório do terminal.
 
     uvicorn api:app --reload --port 8000
 """
 import tempfile
 from collections import Counter, defaultdict
+from io import BytesIO
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel, Field
 
 from core.settings import settings
@@ -21,7 +24,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 class LinhaPEC(BaseModel):
-    equipe: str = "Equipe"
     cargo: str
     escala: str = Field(description="como na PEC: 'ESCALA SEGUNDA - SEXTA (07:30 - 17:18)' ou 'ESCALA 6 X 1 (07:30 - 16:00)'")
     quantidade: int = Field(gt=0)
@@ -48,7 +50,6 @@ def _turno_json(segs):
 def _cargo_json(e):
     dias = len(e["pessoas"][0])
     return {
-        "equipe": e["equipe"],
         "cargo": e["cargo"],
         "escala": e["escala"],
         "quantidade": e["quantidade"],
@@ -84,12 +85,6 @@ def _contratacoes_json(pessoas, horista=False):
 
 
 def resultado_json(r, sem_horario):
-    total = Counter()
-    for e in r["equipes"]:
-        total[e["equipe"]] += e["quantidade"]
-    for equipe, _, _, qtd in sem_horario:
-        total[equipe] += qtd
-
     return {
         "config": {
             "limite_horas_semana": settings.LIMITE_HORAS_SEMANA,
@@ -97,10 +92,9 @@ def resultado_json(r, sem_horario):
             "intervalo_maximo": fmt_horas(settings.INTERVALO_MAXIMO / 60),
             "corte_maximo_min": settings.CORTE_MAXIMO,
         },
-        "total_pessoas": sum(total.values()),
-        "por_equipe": [{"equipe": eq, "quantidade": qtd} for eq, qtd in total.items()],
+        "total_pessoas": sum(e["quantidade"] for e in r["equipes"]) + sum(s[3] for s in sem_horario),
         "cargos": [_cargo_json(e) for e in r["equipes"]],
-        "sem_horario": [{"equipe": eq, "cargo": c, "escala": esc, "quantidade": qtd} for eq, c, esc, qtd in sem_horario],
+        "sem_horario": [{"cargo": c, "escala": esc, "quantidade": qtd} for _, c, esc, qtd in sem_horario],
         "rombo": {
             "blocos": [{"inicio": fmt_min(ini), "fim": fmt_min(fim), "duracao": fmt_horas((fim - ini) / 60),
                         "pessoas": qtd} for (ini, fim), qtd in sorted(Counter(r["blocos"]).items())],
@@ -132,6 +126,60 @@ def simular(simulacao: Simulacao):
     return resultado_json(calcular(equipes), sem_horario)
 
 
+MODELO_COLUNAS = [  # (coluna, tipo, o que é, exemplo); a ordem é a do modelo
+    ("QF_CARGO", "Texto", "Cargo. O código numérico do início é removido.", "14833188 - AUXILIAR DE LIMPEZA I - DIA"),
+    ("Escala", "Texto", "Dias e horário: 'ESCALA SEGUNDA - SEXTA (07:30 - 17:18)' ou 'ESCALA 6 X 1 (07:30 - 16:00)'.",
+     "ESCALA SEGUNDA - SEXTA (07:30 - 17:18)"),
+    ("Quantidade", "Número inteiro", "Pessoas do cargo nessa escala.", "4"),
+]
+MODELO_EXEMPLOS = [
+    ["200 - AUXILIAR DE LIMPEZA", "ESCALA SEGUNDA - SEXTA (07:30 - 17:18)", 4],
+    ["201 - AUXILIAR DE LIMPEZA - 6X1", "ESCALA 6 X 1 (07:30 - 16:00)", 2],
+    ["202 - LIDER DE LIMPEZA", "ESCALA SEGUNDA - SEXTA (08:00 - 17:48)", 1],
+    ["203 - PORTEIRO", "ESCALA SEGUNDA - SABADO (22:00 - 06:00)", 2],
+]
+
+
+@app.get("/modelo")
+def modelo():
+    """xlsx modelo da PEC: aba PEC com o cabeçalho e linhas de exemplo, aba Instruções com o formato de cada coluna."""
+    wb = Workbook()
+    pec = wb.active
+    pec.title = "PEC"
+    pec.append([c[0] for c in MODELO_COLUNAS])
+    for linha in MODELO_EXEMPLOS:
+        pec.append(linha)
+
+    inst = wb.create_sheet("Instruções")
+    inst.append(["Coluna", "Tipo", "O que é", "Exemplo"])
+    for coluna in MODELO_COLUNAS:
+        inst.append(list(coluna))
+    inst.append([])
+    for texto in [
+        "Cabeçalho na primeira linha da aba PEC; uma linha por cargo e escala. Outras colunas são ignoradas.",
+        "Escala por dias: ESCALA <DIA> - <DIA> (HH:MM - HH:MM). Basta o início do dia (SEG, TER, QUA, QUI, SEX, SAB, DOM).",
+        "Escala por ciclo: ESCALA N X M (HH:MM - HH:MM), com N + M = 7. Os N dias contam a partir de segunda.",
+        "Saída menor que a entrada é turno que vira a noite, ex.: (22:00 - 06:00).",
+        "Escalas fora desses formatos (12x36, vazia) somam pessoas, mas ficam fora do cálculo.",
+    ]:
+        inst.append([texto])
+
+    cabecalho = Font(bold=True, color="FFFFFF")
+    fundo = PatternFill("solid", fgColor="1F5EFF")
+    for aba, larguras in ((pec, [40, 44, 12]), (inst, [14, 16, 70, 48])):
+        for celula in aba[1]:
+            celula.font, celula.fill = cabecalho, fundo
+        for i, largura in enumerate(larguras):
+            aba.column_dimensions[chr(65 + i)].width = largura
+        aba.freeze_panes = "A2"
+
+    buf = BytesIO()
+    wb.save(buf)
+    return Response(buf.getvalue(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="modelo_pec.xlsx"'})
+
+
 @app.post("/importar")
 async def importar(arquivo: UploadFile):
     """Lê um xlsx no formato da PEC e devolve as linhas por CR, para preencher o formulário."""
@@ -143,5 +191,6 @@ async def importar(arquivo: UploadFile):
         try:
             por_cr = ler_linhas(caminho)
         except KeyError as coluna:
-            raise HTTPException(400, f"Coluna {coluna} não encontrada. Esperado: SL_CR, SL_DESC, QF_CARGO, Escala, Quantidade.")
-    return {"centros": [{"cr": cr, "linhas": linhas} for cr, linhas in por_cr.items()]}
+            raise HTTPException(400, f"Coluna {coluna} não encontrada. Necessárias: QF_CARGO, Escala, Quantidade.")
+    return {"centros": [{"cr": cr, "linhas": [{k: l[k] for k in ("cargo", "escala", "quantidade")} for l in linhas]}
+                         for cr, linhas in por_cr.items()]}
