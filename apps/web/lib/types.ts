@@ -30,8 +30,36 @@ export type Contratacoes = {
   }[];
 };
 
+export type TurnoRevezamento = {
+  titulo: string;
+  entrada: string;
+  saida: string;
+  horas_semana: string;
+  por_dia: number[];
+  demanda: number[];
+  pessoas: { nome: string; folgas: number[]; trabalha: boolean[] }[];
+};
+
+export type Revezamento = {
+  total: number;
+  horas_semana: string;
+  frases: string[];
+  turnos: TurnoRevezamento[];
+  horistas: Contratacoes;
+};
+
+export type Sugestoes = { revezamento: Revezamento; horista: Contratacoes };
+
+export type Config = {
+  limite_horas_semana: number;
+  escala: string;
+  intervalo_maximo: string;
+  corte_maximo_min: number;
+  dias: string[];
+};
+
 export type Resultado = {
-  config: { limite_horas_semana: number; escala: string; intervalo_maximo: string; corte_maximo_min: number };
+  config: Config;
   total_pessoas: number;
   cargos: Cargo[];
   sem_horario: LinhaPEC[];
@@ -43,5 +71,15 @@ export type Resultado = {
     percentual: number;
     colaboradores_equivalentes: number;
   };
-  sugestoes: { revezamento: Contratacoes; horista: Contratacoes } | null;
+  sugestoes: Sugestoes | null;
+};
+
+// Formato da resposta de POST /dimensionar
+export type Dimensionamento = {
+  config: Config;
+  postos: { cargo: string; escala: string; quantidade: number; dias: string; entrada: string; saida: string }[];
+  sem_horario: LinhaPEC[];
+  horas_posto_semana: string;
+  colaboradores_equivalentes: number;
+  sugestoes: Sugestoes | null;
 };

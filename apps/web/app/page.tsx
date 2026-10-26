@@ -2,20 +2,43 @@
 
 import { useRef, useState } from "react";
 import { escalaTexto, lerEscala } from "@/lib/escala";
-import type { LinhaPEC, Resultado as R } from "@/lib/types";
+import type { Dimensionamento as D, LinhaPEC, Resultado as R } from "@/lib/types";
+import Dimensionamento from "./Dimensionamento";
+import FormatoPEC from "./FormatoPEC";
 import Formulario, { Linha, novaLinha } from "./Formulario";
 import Resultado from "./Resultado";
-import FormatoPEC from "./FormatoPEC";
 
 type Centro = { cr: string; linhas: LinhaPEC[] };
+type Modo = "quadro" | "demanda";
 
-const EXEMPLO: Linha[] = [
+const EXEMPLO_QUADRO: Linha[] = [
   novaLinha({ cargo: "Auxiliar de limpeza", quantidade: 4 }),
   novaLinha({ cargo: "Auxiliar de limpeza - 6x1", quantidade: 2,
               escala: { tipo: "ciclo", trabalha: 6, entrada: "07:30", saida: "16:00" } }),
   novaLinha({ cargo: "Líder de limpeza", quantidade: 1,
               escala: { tipo: "semana", de: 0, ate: 4, entrada: "08:00", saida: "17:48" } }),
 ];
+
+const EXEMPLO_DEMANDA: Linha[] = [
+  novaLinha({ cargo: "Limpeza", quantidade: 5, escala: { tipo: "semana", de: 0, ate: 6, entrada: "06:00", saida: "22:00" } }),
+];
+
+const MODOS = {
+  quadro: {
+    rotulo: "Converter quadro atual",
+    descricao: "Informe o quadro como na PEC (cargo, horário/escala e quantidade de pessoas). O simulador leva cada " +
+               "cargo para 5x2 de 42h, mede o rombo de cobertura e sugere contratações.",
+    rotulos: { cargo: "Cargo", quantidade: "Quantidade", exemplo: "Ex.: Auxiliar de limpeza" },
+    rota: "/api/simular",
+  },
+  demanda: {
+    rotulo: "Dimensionar por demanda",
+    descricao: "Informe quantos postos precisam estar ocupados, em quais dias e horário (ex.: 5 postos de segunda a " +
+               "domingo, das 06h às 22h). O simulador monta as equipes 5x2 por turno, com folgas em escadinha.",
+    rotulos: { cargo: "Posto", quantidade: "Postos", exemplo: "Ex.: Limpeza" },
+    rota: "/api/dimensionar",
+  },
+};
 
 async function lerErro(resp: Response) {
   try {
@@ -27,15 +50,29 @@ async function lerErro(resp: Response) {
 }
 
 export default function Home() {
-  const [linhas, setLinhas] = useState<Linha[]>(EXEMPLO);
+  const [modo, setModo] = useState<Modo>("quadro");
+  const [linhas, setLinhas] = useState<Record<Modo, Linha[]>>({ quadro: EXEMPLO_QUADRO, demanda: EXEMPLO_DEMANDA });
   const [centros, setCentros] = useState<Centro[]>([]);
   const [resultado, setResultado] = useState<R | null>(null);
+  const [dimensionamento, setDimensionamento] = useState<D | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
   const arquivo = useRef<HTMLInputElement>(null);
 
+  const atuais = linhas[modo];
+  const setAtuais = (novas: Linha[]) => setLinhas({ ...linhas, [modo]: novas });
+  const config = MODOS[modo];
+
+  const trocarModo = (m: Modo) => {
+    setModo(m);
+    setErro("");
+  };
+
   const usarCentro = (c: Centro) => {
-    setLinhas(c.linhas.map((l) => novaLinha({ cargo: l.cargo, quantidade: l.quantidade, escala: lerEscala(l.escala) })));
+    setLinhas((l) => ({
+      ...l,
+      quadro: c.linhas.map((x) => novaLinha({ cargo: x.cargo, quantidade: x.quantidade, escala: lerEscala(x.escala) })),
+    }));
     setResultado(null);
   };
 
@@ -53,73 +90,91 @@ export default function Home() {
 
   const simular = async () => {
     setErro("");
-    const vazias = linhas.filter((l) => !l.cargo.trim());
-    if (!linhas.length) return setErro("Adicione ao menos uma linha.");
-    if (vazias.length) return setErro("Preencha o cargo de todas as linhas.");
+    if (!atuais.length) return setErro("Adicione ao menos uma linha.");
+    if (atuais.some((l) => !l.cargo.trim())) return setErro(`Preencha o campo ${config.rotulos.cargo} de todas as linhas.`);
     setCarregando(true);
     const corpo = {
-      linhas: linhas.map((l) => ({
-        cargo: l.cargo.trim(),
-        escala: escalaTexto(l.escala),
-        quantidade: l.quantidade,
-      })),
+      linhas: atuais.map((l) => ({ cargo: l.cargo.trim(), escala: escalaTexto(l.escala), quantidade: l.quantidade })),
     };
-    const resp = await fetch("/api/simular", {
+    const resp = await fetch(config.rota, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corpo),
     }).catch(() => null);
     setCarregando(false);
     if (!resp?.ok) return setErro(resp ? await lerErro(resp) : "Não foi possível falar com a API.");
-    setResultado(await resp.json());
+    const dados = await resp.json();
+    if (modo === "quadro") setResultado(dados);
+    else setDimensionamento(dados);
     setTimeout(() => document.getElementById("resultado")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
+
+  const limpar = () => {
+    setAtuais([]);
+    if (modo === "quadro") {
+      setCentros([]);
+      setResultado(null);
+    } else setDimensionamento(null);
+  };
+
+  const total = atuais.reduce((s, l) => s + l.quantidade, 0);
 
   return (
     <main>
       <h1>Simulador de escala</h1>
-      <p className="sub">
-        Informe o quadro como na PEC (cargo, horário/escala e quantidade de pessoas). O simulador leva cada
-        cargo para 5x2 de 42h, mede o rombo de cobertura e sugere contratações.
-      </p>
+
+      <div className="abas" role="tablist">
+        {(Object.keys(MODOS) as Modo[]).map((m) => (
+          <button key={m} role="tab" aria-selected={modo === m} className={modo === m ? "aba ativa" : "aba"}
+                  onClick={() => trocarModo(m)}>
+            {MODOS[m].rotulo}
+          </button>
+        ))}
+      </div>
+      <p className="sub">{config.descricao}</p>
 
       <section className="card">
         <div className="row" style={{ marginBottom: 12 }}>
-          <h2 style={{ margin: 0 }}>Quadro</h2>
+          <h2 style={{ margin: 0 }}>{modo === "quadro" ? "Quadro" : "Demanda"}</h2>
           <span className="spacer" />
-          {centros.length > 1 && (
-            <select aria-label="Centro de resultado" onChange={(e) => usarCentro(centros[Number(e.target.value)])}>
-              {centros.map((c, i) => <option key={c.cr} value={i}>{c.cr} ({c.linhas.length} linhas)</option>)}
-            </select>
+          {modo === "quadro" && (
+            <>
+              {centros.length > 1 && (
+                <select aria-label="Centro de resultado" onChange={(e) => usarCentro(centros[Number(e.target.value)])}>
+                  {centros.map((c, i) => <option key={c.cr} value={i}>{c.cr} ({c.linhas.length} linhas)</option>)}
+                </select>
+              )}
+              <FormatoPEC />
+              <label className="botao">
+                Importar xlsx da PEC
+                <input ref={arquivo} type="file" accept=".xlsx,.xls" hidden
+                       onChange={(e) => e.target.files?.[0] && importar(e.target.files[0])} />
+              </label>
+            </>
           )}
-          <FormatoPEC />
-          <label className="botao">
-            Importar xlsx da PEC
-            <input ref={arquivo} type="file" accept=".xlsx,.xls" hidden
-                   onChange={(e) => e.target.files?.[0] && importar(e.target.files[0])} />
-          </label>
-          <button onClick={() => { setLinhas([]); setCentros([]); setResultado(null); }}>Limpar</button>
+          <button onClick={limpar}>Limpar</button>
         </div>
 
-        <Formulario linhas={linhas} onChange={setLinhas} />
+        <Formulario linhas={atuais} onChange={setAtuais} rotulos={config.rotulos} />
 
         <div className="row" style={{ marginTop: 16 }}>
-          <button onClick={() => setLinhas([...linhas, novaLinha()])}>
-            + Adicionar linha
-          </button>
+          <button onClick={() => setAtuais([...atuais, novaLinha()])}>+ Adicionar linha</button>
           <span className="muted">
-            {linhas.reduce((s, l) => s + l.quantidade, 0)} pessoa(s) em {linhas.length} linha(s)
+            {total} {modo === "quadro" ? "pessoa(s)" : "posto(s)"} em {atuais.length} linha(s)
           </span>
           <span className="spacer" />
           <button className="primario" onClick={simular} disabled={carregando}>
-            {carregando ? "Simulando…" : "Simular"}
+            {carregando ? "Calculando…" : modo === "quadro" ? "Simular" : "Dimensionar"}
           </button>
         </div>
       </section>
 
       {erro && <div className="erro-msg">{erro}</div>}
 
-      <div id="resultado">{resultado && <Resultado r={resultado} />}</div>
+      <div id="resultado">
+        {modo === "quadro" && resultado && <Resultado r={resultado} />}
+        {modo === "demanda" && dimensionamento && <Dimensionamento d={dimensionamento} />}
+      </div>
     </main>
   );
 }

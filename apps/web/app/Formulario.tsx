@@ -7,7 +7,10 @@ export type Linha = { id: number; cargo: string; escala: Escala; quantidade: num
 type Props = {
   linhas: Linha[];
   onChange: (linhas: Linha[]) => void;
+  rotulos?: { cargo: string; quantidade: string; exemplo: string };
 };
+
+const ROTULOS = { cargo: "Cargo", quantidade: "Quantidade", exemplo: "Ex.: Auxiliar de limpeza" };
 
 let proximoId = 1;
 export const novaLinha = (parcial: Partial<Linha> = {}): Linha => ({
@@ -71,7 +74,7 @@ function CampoEscala({ escala, onChange }: { escala: Escala; onChange: (e: Escal
   );
 }
 
-export default function Formulario({ linhas, onChange }: Props) {
+export default function Formulario({ linhas, onChange, rotulos = ROTULOS }: Props) {
   const atualizar = (id: number, campos: Partial<Linha>) =>
     onChange(linhas.map((l) => (l.id === id ? { ...l, ...campos } : l)));
 
@@ -80,9 +83,9 @@ export default function Formulario({ linhas, onChange }: Props) {
       <table>
         <thead>
           <tr>
-            <th style={{ width: "30%" }}>Cargo</th>
+            <th style={{ width: "30%" }}>{rotulos.cargo}</th>
             <th>Horário / escala</th>
-            <th className="num" style={{ width: 90 }}>Quantidade</th>
+            <th className="num" style={{ width: 90 }}>{rotulos.quantidade}</th>
             <th style={{ width: 44 }} />
           </tr>
         </thead>
@@ -90,7 +93,7 @@ export default function Formulario({ linhas, onChange }: Props) {
           {linhas.map((l) => (
             <tr key={l.id}>
               <td>
-                <input value={l.cargo} placeholder="Ex.: Auxiliar de limpeza" style={{ width: "100%" }}
+                <input value={l.cargo} placeholder={rotulos.exemplo} style={{ width: "100%" }}
                        onChange={(e) => atualizar(l.id, { cargo: e.target.value })} aria-label="Cargo" />
               </td>
               <td>

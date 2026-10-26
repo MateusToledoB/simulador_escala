@@ -16,8 +16,9 @@ from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel, Field
 
 from core.settings import settings
-from main import (calcular, contrato, desc_turno, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_grupo,
-                  horas_legais, horas_turno, intervalo, janela, ler_linhas, meta_semana, montar_equipes, turno)
+from main import (calcular, contrato, desc_turno, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
+                  frases_horistas, horas_legais, horas_turno, intervalo, janela, ler_escala, ler_linhas, meta_semana,
+                  montar_equipes, nome_turno, por_dia, sugerir, total_revezamento)
 
 app = FastAPI(title="Simulador de escala")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -66,17 +67,14 @@ def _cargo_json(e):
     }
 
 
-def _contratacoes_json(pessoas, horista=False):
-    grupos = defaultdict(list)
+def _horistas_json(pessoas):
     ordem = sorted(pessoas, key=lambda p: -len(p))
-    for p in ordem:
-        grupos[contrato(p, horista), tuple(sorted(d % 7 for d in p))].append(p)
     return {
         "total": len(pessoas),
         "horas_semana": fmt_horas(sum(horas_turno(*t) for p in pessoas for t in p.values())),
-        "frases": [frase_grupo(tipo, grupo) for (tipo, _), grupo in grupos.items()],
+        "frases": frases_horistas(pessoas),
         "pessoas": [{
-            "contrato": contrato(p, horista),
+            "contrato": contrato(p),
             "horas_semana": fmt_horas(sum(horas_turno(*t) for t in p.values())),
             "turnos": [{"dia": settings.NOMES[dia % 7], "entrada": fmt_hora(ini), "saida": fmt_hora(fim),
                         "horas": fmt_horas(horas_turno(ini, fim))} for dia, (ini, fim) in sorted(p.items())],
@@ -84,14 +82,45 @@ def _contratacoes_json(pessoas, horista=False):
     }
 
 
+def _revezamento_json(rev):
+    """Equipes 5x2 por turno (com a grade semana x pessoa) e os horistas que cobrem o resto."""
+    horas = sum(horas_turno(*t) for g in rev["turnos"] for p in g["pessoas"] for t in p["escala"].values())
+    horas += sum(horas_turno(*t) for p in rev["horistas"] for t in p.values())
+    return {
+        "total": total_revezamento(rev),
+        "horas_semana": fmt_horas(horas),
+        "frases": [frase_turno(g) for g in rev["turnos"]] + frases_horistas(rev["horistas"]),
+        "turnos": [{
+            "titulo": f"Turno da {nome_turno(g['turno'][0])}",
+            "entrada": fmt_hora(g["turno"][0]),
+            "saida": fmt_hora(g["turno"][1]),
+            "horas_semana": fmt_horas(horas_turno(*g["turno"]) * settings.DIAS_TRABALHO),
+            "por_dia": por_dia(g),
+            "demanda": g["falta"],
+            "pessoas": [{"nome": chr(65 + i) if i < 26 else f"P{i + 1}", "folgas": p["folgas"],
+                         "trabalha": [d in p["escala"] for d in range(7)]} for i, p in enumerate(g["pessoas"])],
+        } for g in rev["turnos"]],
+        "horistas": _horistas_json(rev["horistas"]),
+    }
+
+
+def _config_json():
+    return {
+        "limite_horas_semana": settings.LIMITE_HORAS_SEMANA,
+        "escala": f"{settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA}",
+        "intervalo_maximo": fmt_horas(settings.INTERVALO_MAXIMO / 60),
+        "corte_maximo_min": settings.CORTE_MAXIMO,
+        "dias": settings.NOMES,
+    }
+
+
+def _sugestoes_json(r):
+    return {"revezamento": _revezamento_json(r["revezamento"]), "horista": _horistas_json(r["horista"])}
+
+
 def resultado_json(r, sem_horario):
     return {
-        "config": {
-            "limite_horas_semana": settings.LIMITE_HORAS_SEMANA,
-            "escala": f"{settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA}",
-            "intervalo_maximo": fmt_horas(settings.INTERVALO_MAXIMO / 60),
-            "corte_maximo_min": settings.CORTE_MAXIMO,
-        },
+        "config": _config_json(),
         "total_pessoas": sum(e["quantidade"] for e in r["equipes"]) + sum(s[3] for s in sem_horario),
         "cargos": [_cargo_json(e) for e in r["equipes"]],
         "sem_horario": [{"cargo": c, "escala": esc, "quantidade": qtd} for _, c, esc, qtd in sem_horario],
@@ -105,10 +134,7 @@ def resultado_json(r, sem_horario):
             "percentual": r["total_horas"] / r["horas_demandadas"] if r["horas_demandadas"] else 0,
             "colaboradores_equivalentes": round(r["total_horas"] / settings.LIMITE_HORAS_SEMANA, 1),
         },
-        "sugestoes": None if not r["blocos"] else {
-            "revezamento": _contratacoes_json(r["revezamento"]),
-            "horista": _contratacoes_json(r["horista"], horista=True),
-        },
+        "sugestoes": _sugestoes_json(r) if r["blocos"] else None,
     }
 
 
@@ -124,6 +150,33 @@ def health():
 def simular(simulacao: Simulacao):
     equipes, sem_horario = montar_equipes([l.model_dump() for l in simulacao.linhas])
     return resultado_json(calcular(equipes), sem_horario)
+
+
+@app.post("/dimensionar")
+def dimensionar(simulacao: Simulacao):
+    """
+    Dimensiona a partir da demanda: cada linha diz quantos postos precisam estar ocupados nos dias e horário da
+    escala (ex.: 5 postos, 'ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)'). Devolve as mesmas sugestões do rombo.
+    """
+    blocos, postos, sem_horario = [], [], []
+    for l in simulacao.linhas:
+        escala = ler_escala(l.escala)
+        if not escala:
+            sem_horario.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade})
+            continue
+        dias, ini, fim = escala
+        blocos += [(d * 1440 + ini, d * 1440 + fim) for d in dias for _ in range(l.quantidade)]
+        postos.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade, "dias": fmt_dias(dias),
+                       "entrada": fmt_hora(ini), "saida": fmt_hora(fim)})
+    horas = sum(fim - ini for ini, fim in blocos) / 60
+    return {
+        "config": _config_json(),
+        "postos": postos,
+        "sem_horario": sem_horario,
+        "horas_posto_semana": fmt_horas(horas),
+        "colaboradores_equivalentes": round(horas / settings.LIMITE_HORAS_SEMANA, 1),
+        "sugestoes": _sugestoes_json(sugerir(sorted(blocos))) if blocos else None,
+    }
 
 
 MODELO_COLUNAS = [  # (coluna, tipo, o que é, exemplo); a ordem é a do modelo

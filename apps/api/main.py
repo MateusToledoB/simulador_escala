@@ -309,15 +309,13 @@ def calcular(equipes):
             horas_por_dia[i * settings.SLOT // 1440] += f * settings.SLOT / 60
 
     blocos = blocos_de_falta(falta)
-    turnos = turnos_do_rombo(blocos)
     return {
         "equipes": equipes,
         "blocos": blocos,
         "horas_por_dia": dict(sorted(horas_por_dia.items())),
         "total_horas": sum(falta) * settings.SLOT / 60,
         "horas_demandadas": sum(demanda) * settings.SLOT / 60,
-        "revezamento": alocar(turnos, settings.DIAS_TRABALHO, settings.LIMITE_HORAS_SEMANA),
-        "horista": alocar(turnos, settings.DIAS_MAXIMOS_HORISTA, settings.LIMITE_HORAS_SEMANA),
+        **sugerir(blocos),
     }
 
 
@@ -328,9 +326,24 @@ def horas_turno(ini, fim) -> float:
     return horas_legais(turno(ini, fim))
 
 
+def turnos_iguais(blocos, limite):
+    """Blocos como turnos de no máximo 'limite' horas trabalhadas: o que passa é dividido em partes iguais (16h -> 2 x 8h)."""
+    turnos = []
+    for ini, fim in blocos:
+        n = 1
+        while True:
+            passo = -(-(fim - ini) // (n * settings.SLOT)) * settings.SLOT
+            if horas_turno(ini, ini + passo) <= limite + 1e-9:
+                break
+            n += 1
+        cortes = [min(fim, ini + k * passo) for k in range(n)] + [fim]
+        turnos += [(a, b) for a, b in zip(cortes, cortes[1:]) if b > a]
+    return turnos
+
+
 def turnos_do_rombo(blocos):
     """
-    Blocos do rombo como turnos: o que passa de JORNADA_MAXIMA_DIA + 2h trabalhadas (CLT art. 59) é cortado
+    Blocos do rombo como turnos de horista: o que passa de JORNADA_MAXIMA_DIA + 2h trabalhadas (CLT art. 59) é cortado
     o mais tarde possível, de preferência num horário em que o rombo muda (início/fim de outro bloco),
     para que o pedaço seguinte emende com outros turnos.
     """
@@ -345,6 +358,73 @@ def turnos_do_rombo(blocos):
             ini = corte
         turnos.append((ini, fim))
     return turnos
+
+
+def revezar(turnos):
+    """
+    Revezamento 5x2 em escadinha. Turnos com o mesmo horário formam um turno da semana; em cada um, contrata pessoas
+    que trabalham DIAS_TRABALHO dias nesse horário, com as FOLGAS_POR_SEMANA folgas em dias seguidos, postas onde
+    ainda falta menos gente (empate: logo depois da folga da pessoa anterior, o que forma a escadinha).
+    Só contrata enquanto a pessoa cobre o rombo em pelo menos DIAS_UTEIS_REVEZAMENTO dos dias que trabalha,
+    e se o turno cabe em LIMITE_HORAS_SEMANA. Devolve ([{"turno": (ini, fim), "falta": [pessoas por dia],
+    "pessoas": [{"folgas": [dias], "escala": {dia: (ini, fim)}}]}], turnos que sobram para horistas).
+    """
+    por_horario = defaultdict(lambda: [0] * 7)
+    for ini, fim in turnos:
+        por_horario[ini % 1440, fim - ini][ini // 1440 % 7] += 1
+
+    grupos, sobra = [], []
+    for (ini, dur), falta in sorted(por_horario.items()):
+        demanda, pessoas, depois_de = list(falta), [], 0
+        cabe = horas_turno(ini, ini + dur) * settings.DIAS_TRABALHO <= settings.LIMITE_HORAS_SEMANA + 1e-9
+        while cabe and any(falta):
+            opcoes = []
+            for k in range(7):
+                folgas = {(k + j) % 7 for j in range(settings.FOLGAS_POR_SEMANA)}
+                uteis = sum(1 for d in range(7) if d not in folgas and falta[d])
+                opcoes.append((uteis, -sum(falta[d] for d in folgas), -((k - depois_de) % 7), k, folgas))
+            uteis, _, _, k, folgas = max(opcoes)
+            if uteis < settings.DIAS_UTEIS_REVEZAMENTO:
+                break
+            dias = [d for d in range(7) if d not in folgas]
+            for d in dias:
+                falta[d] = max(0, falta[d] - 1)
+            pessoas.append({"inicio_folga": k, "folgas": sorted(folgas), "escala": {d: (d * 1440 + ini, d * 1440 + ini + dur) for d in dias}})
+            depois_de = k + settings.FOLGAS_POR_SEMANA - 1
+        if pessoas:  # em escadinha, pela folga
+            grupos.append({"turno": (ini, ini + dur), "falta": demanda,
+                           "pessoas": sorted(pessoas, key=lambda p: p["inicio_folga"])})
+        sobra += [(d * 1440 + ini, d * 1440 + ini + dur) for d in range(7) for _ in range(falta[d])]
+    return grupos, sobra
+
+
+def horistas(blocos):
+    return alocar(turnos_do_rombo(blocos), settings.DIAS_MAXIMOS_HORISTA, settings.LIMITE_HORAS_SEMANA)
+
+
+def sugerir(blocos):
+    """
+    Duas formas de cobrir os blocos (rombo ou demanda):
+      revezamento: equipes 5x2 por turno (revezar), com turnos iguais de até LIMITE_HORAS_SEMANA / DIAS_TRABALHO
+                   horas, e horistas para o que as equipes deixam descoberto;
+      horista:     só horistas.
+    """
+    grupos, _ = revezar(turnos_iguais(blocos, settings.LIMITE_HORAS_SEMANA / settings.DIAS_TRABALHO))
+    linha = Linha()
+    falta = [0] * linha.n
+    for ini, fim in blocos:
+        for s in linha.slots(0, [(ini, fim)]):
+            falta[s] += 1
+    for g in grupos:
+        for p in g["pessoas"]:
+            for ini, fim in p["escala"].values():
+                for s in linha.slots(0, [(ini, fim)]):
+                    falta[s] -= 1
+    resto = blocos_de_falta([max(0, f) for f in falta])
+    return {
+        "revezamento": {"turnos": grupos, "horistas": horistas(resto)},
+        "horista": horistas(blocos),
+    }
 
 
 def _cabe(escala, max_dias, max_horas):
@@ -423,10 +503,8 @@ def imprimir(r, sem_horario=(), centro=settings.CENTRO_RESULTADO):
     imprimir_sugestoes(r)
 
 
-def contrato(escala, horista=False) -> str:
-    """'escala 4x3' para quem trabalha DIAS_MINIMOS_ESCALA dias ou mais (no revezamento), senão 'horista 2x por semana'."""
-    n = len(escala)
-    return f"escala {n}x{7 - n}" if not horista and n >= settings.DIAS_MINIMOS_ESCALA else f"horista {n}x por semana"
+def contrato(escala) -> str:
+    return f"horista {len(escala)}x por semana"
 
 
 def dias_extenso(dias) -> str:
@@ -440,12 +518,9 @@ def dias_extenso(dias) -> str:
 
 
 def frase_grupo(tipo, pessoas) -> str:
-    """'2 horistas que vão 2x por semana, sexta e sábado, com 16h e 15h.' para pessoas com o mesmo contrato e dias."""
+    """'2 horistas que vão 2x por semana, sexta e sábado, com 16h e 15h.' para horistas com os mesmos dias."""
     n, dias = len(pessoas), sorted(d % 7 for d in pessoas[0])
-    if tipo.startswith("escala"):
-        frase = f"{n} pessoa{'s' if n > 1 else ''} em {tipo}"
-    else:
-        frase = f"{n} horista{'s' if n > 1 else ''} que {'vão' if n > 1 else 'vai'} {tipo.removeprefix('horista ')}"
+    frase = f"{n} horista{'s' if n > 1 else ''} que {'vão' if n > 1 else 'vai'} {tipo.removeprefix('horista ')}"
     frase += f", {dias_extenso(dias)}"
     horarios = {(ini % 1440, fim - ini) for p in pessoas for ini, fim in p.values()}
     if len(horarios) == 1:
@@ -463,17 +538,54 @@ def frase_grupo(tipo, pessoas) -> str:
     return frase + "."
 
 
-def imprimir_contratacoes(pessoas, horista=False):
+def frases_horistas(pessoas):
     grupos = defaultdict(list)
     for p in sorted(pessoas, key=lambda p: -len(p)):
-        grupos[contrato(p, horista), tuple(sorted(d % 7 for d in p))].append(p)
-    for (tipo, _), grupo in grupos.items():
-        print(f"   {frase_grupo(tipo, grupo)}")
+        grupos[contrato(p), tuple(sorted(d % 7 for d in p))].append(p)
+    return [frase_grupo(tipo, grupo) for (tipo, _), grupo in grupos.items()]
 
-    print("   Horários:")
+
+def nome_turno(ini) -> str:
+    h = ini % 1440 // 60
+    return "manhã" if 5 <= h < 12 else "tarde" if 12 <= h < 18 else "noite"
+
+
+def por_dia(grupo):
+    """Pessoas do revezamento trabalhando em cada dia da semana no turno."""
+    return [sum(1 for p in grupo["pessoas"] if d in p["escala"]) for d in range(7)]
+
+
+def frase_turno(grupo) -> str:
+    """'7 pessoas em escala 5x2 no turno da manhã (06:00–14:00), 35h por semana cada, 5 trabalhando por dia.'"""
+    ini, fim = grupo["turno"]
+    n, dias = len(grupo["pessoas"]), por_dia(grupo)
+    trabalhando = [d for d in dias if d]
+    por = f"{trabalhando[0]}" if min(trabalhando) == max(trabalhando) else f"de {min(trabalhando)} a {max(trabalhando)}"
+    return (f"{n} pessoa{'s' if n > 1 else ''} em escala {settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA} "
+            f"no turno da {nome_turno(ini)} ({fmt_hora(ini)}–{fmt_hora(fim)}), "
+            f"{fmt_horas(horas_turno(ini, fim) * settings.DIAS_TRABALHO)} por semana cada, {por} trabalhando por dia"
+            f" (folgas em dias seguidos, em revezamento).")
+
+
+def total_revezamento(rev) -> int:
+    return sum(len(g["pessoas"]) for g in rev["turnos"]) + len(rev["horistas"])
+
+
+def imprimir_horarios(pessoas):
+    print("   Horários dos horistas:")
     for i, p in enumerate(sorted(pessoas, key=lambda p: -len(p)), 1):
-        print(f"     Pessoa {i}: " + "; ".join(f"{settings.NOMES[dia % 7]} {fmt_hora(ini)}–{fmt_hora(fim)}"
-                                              for dia, (ini, fim) in sorted(p.items())))
+        print(f"     Horista {i}: " + "; ".join(f"{settings.NOMES[dia % 7]} {fmt_hora(ini)}–{fmt_hora(fim)}"
+                                               for dia, (ini, fim) in sorted(p.items())))
+
+
+def imprimir_grade(grupo):
+    """Grade semana x pessoa do turno, como a escala em escadinha: T = trabalha, F = folga."""
+    ini, fim = grupo["turno"]
+    print(f"\n   Turno da {nome_turno(ini)}: {fmt_hora(ini)} às {fmt_hora(fim)}")
+    print("   Equipe  " + "  ".join(f"{n:<3}" for n in settings.NOMES))
+    for i, p in enumerate(grupo["pessoas"]):
+        print(f"   {chr(65 + i):<7} " + "  ".join(f"{'F' if d in p['folgas'] else 'T':<3}" for d in range(7)))
+    print("   Por dia " + "  ".join(f"{n:<3}" for n in por_dia(grupo)))
 
 
 def imprimir_sugestoes(r):
@@ -485,21 +597,32 @@ def imprimir_sugestoes(r):
         print("Nenhuma contratação necessária.")
         return
 
-    print(f"\n1) REVEZAMENTO: escala fixa para quem cobre o rombo em {settings.DIAS_MINIMOS_ESCALA} dias ou mais "
-          f"(até {settings.DIAS_TRABALHO} dias e {settings.LIMITE_HORAS_SEMANA}h), horista para os demais")
-    imprimir_contratacoes(r["revezamento"])
+    rev = r["revezamento"]
+    print(f"\n1) REVEZAMENTO: {total_revezamento(rev)} contratação(ões): equipes "
+          f"{settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA} por turno, com folgas em escadinha, "
+          f"e horistas para o que sobra")
+    for frase in [frase_turno(g) for g in rev["turnos"]] + frases_horistas(rev["horistas"]):
+        print(f"   {frase}")
+    for g in rev["turnos"]:
+        imprimir_grade(g)
+    if rev["horistas"]:
+        print()
+        imprimir_horarios(rev["horistas"])
 
-    print(f"\n2) HORISTA: todos por hora (intermitente), pagando só as horas do rombo "
-          f"(até {settings.DIAS_MAXIMOS_HORISTA} dias por semana)")
-    imprimir_contratacoes(r["horista"], horista=True)
+    print(f"\n2) HORISTA: {len(r['horista'])} contratação(ões), todos por hora (intermitente), "
+          f"pagando só as horas do rombo (até {settings.DIAS_MAXIMOS_HORISTA} dias por semana)")
+    for frase in frases_horistas(r["horista"]):
+        print(f"   {frase}")
+    imprimir_horarios(r["horista"])
 
 
 def imprimir_geral(por_centro):
     """Soma da coluna Quantidade de todos os CRs: por CR e por cargo. por_centro = {cr: (resultado, sem_horario)}."""
     por_cr, por_cargo = Counter(), Counter()
-    rev, hor = Counter(), 0
+    escala = rev_horistas = hor = 0
     for cr, (r, sem_horario) in por_centro.items():
-        rev.update((-len(p), contrato(p)) for p in r["revezamento"])
+        escala += sum(len(g["pessoas"]) for g in r["revezamento"]["turnos"])
+        rev_horistas += len(r["revezamento"]["horistas"])
         hor += len(r["horista"])
         for e in r["equipes"]:
             por_cr[cr] += e["quantidade"]
@@ -517,10 +640,8 @@ def imprimir_geral(por_centro):
     for cargo, qtd in por_cargo.items():
         print(f"  {cargo}: {qtd}")
     print(f"\nContratações para cobrir o rombo:")
-    print(f"  1) Revezamento: {sum(rev.values())} ("
-          + ", ".join(f"{qtd} em {tipo}" if tipo.startswith("escala")
-                      else f"{qtd} horista{'s' if qtd > 1 else ''} {tipo.removeprefix('horista ')}"
-                      for (_, tipo), qtd in sorted(rev.items())) + ")")
+    print(f"  1) Revezamento: {escala + rev_horistas} ({escala} em {settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA}, "
+          f"{rev_horistas} horista(s))")
     print(f"  2) Horista: {hor}")
 
 

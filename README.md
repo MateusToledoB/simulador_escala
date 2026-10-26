@@ -25,6 +25,9 @@ O site chama `/api/*`, que o Next repassa para a API (`API_URL`, padrão `http:/
 
 - `POST /simular`: `{"linhas": [{"cargo", "escala", "quantidade"}]}` devolve o resultado da simulação.
   A escala segue o texto da PEC: `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` ou `ESCALA 6 X 1 (07:30 - 16:00)`.
+- `POST /dimensionar`: mesmo corpo, mas cada linha é a demanda (quantidade = postos ocupados nos dias e horário da
+  escala, ex. 5 postos em `ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)`). Devolve as equipes 5x2 por turno, com folgas
+  em escadinha (grade semana x pessoa), e a alternativa só com horistas.
 - `GET /modelo`: baixa o xlsx modelo da PEC (cabeçalho, linhas de exemplo e aba de instruções).
 - `POST /importar`: recebe o xlsx da PEC e devolve as linhas (colunas QF_CARGO, Escala, Quantidade).
 

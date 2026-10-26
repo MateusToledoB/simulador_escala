@@ -1,40 +1,11 @@
 import { Fragment } from "react";
-import type { Cargo, Contratacoes, Resultado as R } from "@/lib/types";
+import type { Cargo, Resultado as R } from "@/lib/types";
+import Sugestoes from "./Sugestoes";
 
 function Corte({ c }: { c: Cargo }) {
   if (c.corte_min > 0) return <>corte de {c.corte_min} min no fim</>;
   if (c.corte_min < 0) return <>saída estendida em {Math.round(-c.corte_min)} min</>;
   return <span className="muted">—</span>;
-}
-
-function Sugestao({ titulo, descricao, s }: { titulo: string; descricao: string; s: Contratacoes }) {
-  return (
-    <div className="card" style={{ marginBottom: 0 }}>
-      <div className="row" style={{ marginBottom: 8 }}>
-        <h3 style={{ margin: 0 }}>{titulo}</h3>
-        <span className="spacer" />
-        <span className="tag">{s.total} contratação(ões) · {s.horas_semana}/semana</span>
-      </div>
-      <p className="muted" style={{ marginTop: 0 }}>{descricao}</p>
-      <ul className="frases">
-        {s.frases.map((f) => <li key={f}>{f}</li>)}
-      </ul>
-      <details>
-        <summary>Horários por pessoa</summary>
-        <table style={{ marginTop: 8 }}>
-          <tbody>
-            {s.pessoas.map((p, i) => (
-              <tr key={i}>
-                <td style={{ whiteSpace: "nowrap" }}>Pessoa {i + 1}<div className="muted">{p.contrato}</div></td>
-                <td className="mono">{p.turnos.map((t) => `${t.dia} ${t.entrada}–${t.saida}`).join(" · ")}</td>
-                <td className="num">{p.horas_semana}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
-    </div>
-  );
 }
 
 export default function Resultado({ r }: { r: R }) {
@@ -131,17 +102,7 @@ export default function Resultado({ r }: { r: R }) {
         )}
       </section>
 
-      {r.sugestoes && (
-        <section>
-          <h2>Sugestões para cobrir o rombo</h2>
-          <div className="sugestoes">
-            <Sugestao titulo="1) Revezamento" s={r.sugestoes.revezamento}
-                      descricao="Escala fixa para quem cobre o rombo em vários dias da semana; horista para os demais." />
-            <Sugestao titulo="2) Horista" s={r.sugestoes.horista}
-                      descricao="Todos por hora (intermitente), pagando só as horas do rombo." />
-          </div>
-        </section>
-      )}
+      {r.sugestoes && <Sugestoes s={r.sugestoes} dias={r.config.dias} titulo="Sugestões para cobrir o rombo" />}
     </>
   );
 }

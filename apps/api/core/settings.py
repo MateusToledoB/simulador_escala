@@ -18,7 +18,7 @@ class Settings:
     JORNADA_MAXIMA_DIA = 8        # horas por turno (8h + 2h, CLT art. 59)
     INTERJORNADA_MINIMA = 11      # horas de descanso entre turnos (CLT art. 66)
     DIAS_MAXIMOS_HORISTA = 6      # horista: dias por semana, com 1 descanso semanal (CLT art. 67)
-    DIAS_MINIMOS_ESCALA = 3       # revezamento: quem cobre o rombo em pelo menos tantos dias vira escala fixa (4x3...), o resto horista
+    DIAS_UTEIS_REVEZAMENTO = 4    # revezamento: só contrata 5x2 se a pessoa cobre o rombo em pelo menos tantos dos 5 dias; o resto vai para horista
 
     # --- só para main_dixi.py (relatório DIXI, cobertura pelo funcionamento do CR) ---
     ARQUIVO_DIXI = Path(__file__).resolve().parent.parent / "storage/Relatório Colaboradores DIXI_10_2026.xlsx"
