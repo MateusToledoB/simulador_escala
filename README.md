@@ -23,9 +23,9 @@ O site chama `/api/*`, que o Next repassa para a API (`API_URL`, padrão `http:/
 
 ## API
 
-- `POST /simular`: `{"limite_horas": 42 | 40, "linhas": [{"cargo", "escala", "quantidade"}]}` (carga semanal máxima, padrão 42) devolve uma opção por forma de ajuste (aumentar o intervalo, manter o intervalo e sair mais cedo, manter o intervalo e entrar mais tarde), cada uma com o seu rombo e as sugestões de contratação.
+- `POST /simular`: `{"limite_horas": 42 | 40, "linhas": [{"cargo", "escala", "quantidade"}]}` (carga semanal máxima, padrão 42), com `"salario"` opcional (salário médio mensal: custo de cada pessoa = salário x 1,75; horista proporcional às horas) devolve uma opção por forma de ajuste (aumentar o intervalo, manter o intervalo e sair mais cedo, manter o intervalo e entrar mais tarde), cada uma com o seu rombo e as sugestões de contratação.
   A escala segue o texto da PEC: `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` ou `ESCALA 6 X 1 (07:30 - 16:00)`.
-- `POST /dimensionar`: mesmo corpo, mas cada linha é a demanda (quantidade = postos ocupados nos dias e horário da
+- `POST /dimensionar`: mesmo corpo, mas cada linha é a demanda. Devolve duas propostas: **manter o horário do posto** (cobre todo o horário informado, inclusive os intervalos) e **mínimo de colaboradores** (turnos cheios, o posto fecha mais cedo no que sobra e fica sem ninguém no intervalo). Cada linha é a demanda (quantidade = postos ocupados nos dias e horário da
   escala, ex. 5 postos em `ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)`). Devolve as equipes 5x2 por turno, com folgas
   em escadinha (grade semana x pessoa), e a alternativa só com horistas. O intervalo da CLT entra no cálculo: o
   posto não pode ficar vazio, então os turnos se sobrepõem para um cobrir o intervalo do outro (o que sobra vai para

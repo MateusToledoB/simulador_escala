@@ -19,7 +19,7 @@ from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel, Field
 
 from core.settings import settings
-from main import (ESTRATEGIAS, cenarios, frase_extras, horas_pessoa, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
+from main import (ESTRATEGIAS, cenarios, frase_extras, horas_pessoa, minimo_de_pessoas, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
                   frases_horistas, horas_legais, horas_semana, horas_turno, intervalo, janela, ler_escala, ler_linhas, meta_semana,
                   montar_equipes, nome_turno, por_dia, sugerir, total_revezamento)
 
@@ -39,21 +39,37 @@ class LinhaPEC(BaseModel):
 class Simulacao(BaseModel):
     linhas: list[LinhaPEC] = Field(min_length=1)
     limite_horas: Literal[40, 42] = Field(42, description="carga semanal máxima de cada pessoa")
+    salario: float | None = Field(None, ge=0, description="salário médio mensal; custo = salário x FATOR_ENCARGOS")
 
 
 _calculo = threading.Lock()
+_salario = None  # salário médio da simulação em andamento (_parametros)
 
 
 @contextmanager
-def _limite(horas):
-    """Calcula com a carga semanal escolhida; o lock impede que duas simulações com cargas diferentes se misturem."""
+def _parametros(simulacao):
+    """
+    Calcula com a carga semanal e o salário escolhidos; o lock impede que duas simulações com parâmetros
+    diferentes se misturem.
+    """
+    global _salario
     with _calculo:
         antes = settings.LIMITE_HORAS_SEMANA
-        settings.LIMITE_HORAS_SEMANA = horas
+        settings.LIMITE_HORAS_SEMANA, _salario = simulacao.limite_horas, simulacao.salario or None
         try:
             yield
         finally:
-            settings.LIMITE_HORAS_SEMANA = antes
+            settings.LIMITE_HORAS_SEMANA, _salario = antes, None
+
+
+def _custo(pessoas=0, horas_horista=0.0):
+    """
+    Custo mensal (salário x FATOR_ENCARGOS): cada pessoa 5x2 custa um salário; o horista, a parte do salário
+    proporcional às horas (horas na semana / LIMITE_HORAS_SEMANA). None sem salário informado.
+    """
+    if _salario is None:
+        return None
+    return round(_salario * settings.FATOR_ENCARGOS * (pessoas + horas_horista / settings.LIMITE_HORAS_SEMANA), 2)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +127,7 @@ def _horistas_json(pessoas):
     ordem = sorted(pessoas, key=lambda p: -len(p))
     return {
         "total": len(pessoas),
+        "custo_mensal": _custo(horas_horista=sum(horas_turno(*t) for p in pessoas for t in p.values())),
         "horas_semana": fmt_horas(sum(horas_turno(*t) for p in pessoas for t in p.values())),
         "frases": frases_horistas(pessoas),
         "pessoas": [{
@@ -125,9 +142,11 @@ def _horistas_json(pessoas):
 def _revezamento_json(rev):
     """Equipes 5x2 por turno (com a grade semana x pessoa) e os horistas que cobrem o resto."""
     horas = sum(horas_pessoa(p) for g in rev["turnos"] for p in g["pessoas"])
-    horas += sum(horas_turno(*t) for p in rev["horistas"] for t in p.values())
+    horas_horistas = sum(horas_turno(*t) for p in rev["horistas"] for t in p.values())
+    horas += horas_horistas
     return {
         "total": total_revezamento(rev),
+        "custo_mensal": _custo(sum(len(g["pessoas"]) for g in rev["turnos"]), horas_horistas),
         "horas_semana": fmt_horas(horas),
         "frases": [frase_turno(g) for g in rev["turnos"]] + frases_horistas(rev["horistas"]),
         "turnos": [{
@@ -152,6 +171,8 @@ def _revezamento_json(rev):
 def _config_json():
     return {
         "limite_horas_semana": settings.LIMITE_HORAS_SEMANA,
+        "salario": _salario,
+        "fator_encargos": settings.FATOR_ENCARGOS,
         "escala": f"{settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA}",
         "intervalo_maximo": fmt_horas(settings.INTERVALO_MAXIMO / 60),
         "corte_maximo_min": settings.CORTE_MAXIMO,
@@ -189,6 +210,7 @@ def resultado_json(opcoes, equipes, sem_horario):
     return {
         "config": _config_json(),
         "total_pessoas": sum(e["quantidade"] for e in equipes) + sum(s[3] for s in sem_horario),
+        "custo_quadro": _custo(sum(e["quantidade"] for e in equipes) + sum(s[3] for s in sem_horario)),
         "sem_horario": [{"cargo": c, "escala": esc, "quantidade": qtd} for _, c, esc, qtd in sem_horario],
         "opcoes": [_opcao_json(estrategia, r) for estrategia, r in opcoes.items()],
     }
@@ -205,15 +227,54 @@ def health():
 @app.post("/simular")
 def simular(simulacao: Simulacao):
     equipes, sem_horario = montar_equipes([l.model_dump() for l in simulacao.linhas])
-    with _limite(simulacao.limite_horas):
+    with _parametros(simulacao):
         return resultado_json(cenarios(equipes), equipes, sem_horario)
+
+
+PROPOSTAS = {
+    "horario": ("Manter o horário do posto",
+                "Cobre o posto em todo o horário informado, inclusive no intervalo de cada pessoa."),
+    "minimo": ("Mínimo de colaboradores",
+               "Contrata menos pessoas: cada turno usa a carga semanal inteira e o posto fecha mais cedo no que "
+               "sobra, sem ninguém no intervalo."),
+}
+
+
+def _horario_postos(postos, blocos):
+    """Horário de cada linha da demanda depois do ajuste: 'Seg a Sex 07:30–16:54' (blocos na ordem das linhas)."""
+    por_linha, i = [], 0
+    for p in postos:
+        faixas = defaultdict(list)
+        for d, (ini, fim) in p["horarios"]:
+            a, b = blocos[i]
+            i += p["quantidade"]
+            faixas[fmt_hora(a), fmt_hora(b), b - a < fim - ini].append(d)
+        por_linha.append({
+            "cargo": p["cargo"], "escala": p["escala"], "quantidade": p["quantidade"], "dias": p["dias"],
+            "horario": "; ".join(f"{fmt_dias(dias)} {a}–{b}" for (a, b, _), dias in faixas.items()),
+            "reduzido": any(r for _, _, r in faixas),
+        })
+    return por_linha
+
+
+def _proposta_json(id_, postos, blocos, sugestoes):
+    titulo, descricao = PROPOSTAS[id_]
+    horas = sum(fim - ini for ini, fim in blocos) / 60
+    return {
+        "id": id_, "titulo": titulo, "descricao": descricao,
+        "postos": _horario_postos(postos, blocos),
+        "horas_posto_semana": fmt_horas(horas),
+        "colaboradores_equivalentes": round(horas / settings.LIMITE_HORAS_SEMANA, 1),
+        "sugestoes": _sugestoes_json(sugestoes),
+    }
 
 
 @app.post("/dimensionar")
 def dimensionar(simulacao: Simulacao):
     """
     Dimensiona a partir da demanda: cada linha diz quantos postos precisam estar ocupados nos dias e horário da
-    escala (ex.: 5 postos, 'ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)'). Devolve as mesmas sugestões do rombo.
+    escala (ex.: 5 postos, 'ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)'). Devolve duas propostas (PROPOSTAS):
+    manter o horário do posto, com o intervalo coberto, e o mínimo de colaboradores (main.minimo_de_pessoas).
     """
     blocos, postos, sem_horario = [], [], []
     for l in simulacao.linhas:
@@ -222,16 +283,20 @@ def dimensionar(simulacao: Simulacao):
             sem_horario.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade})
             continue
         blocos += [(d * 1440 + ini, d * 1440 + fim) for d, (ini, fim, _) in horarios.items() for _ in range(l.quantidade)]
-        postos.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade, "dias": fmt_dias(list(horarios))})
-    horas = sum(fim - ini for ini, fim in blocos) / 60
-    with _limite(simulacao.limite_horas):
+        postos.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade, "dias": fmt_dias(list(horarios)),
+                       "horarios": [(d, (d * 1440 + ini, d * 1440 + fim)) for d, (ini, fim, _) in horarios.items()]})
+    with _parametros(simulacao):
+        propostas = []
+        if blocos:
+            propostas.append(_proposta_json("horario", postos, blocos, sugerir(sorted(blocos), com_intervalo=True)))
+            ajustados, turnos, pausas = minimo_de_pessoas(blocos)
+            propostas.append(_proposta_json("minimo", postos, ajustados,
+                                            sugerir(sorted(ajustados), turnos=turnos, pausas=pausas)))
         return {
             "config": _config_json(),
-            "postos": postos,
             "sem_horario": sem_horario,
-            "horas_posto_semana": fmt_horas(horas),
-            "colaboradores_equivalentes": round(horas / settings.LIMITE_HORAS_SEMANA, 1),
-            "sugestoes": _sugestoes_json(sugerir(sorted(blocos), com_intervalo=True)) if blocos else None,
+            "postos": sum(p["quantidade"] for p in postos),
+            "propostas": propostas,
         }
 
 

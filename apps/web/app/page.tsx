@@ -47,6 +47,7 @@ export default function Home() {
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [limite, setLimite] = useState<40 | 42>(42);
+  const [salario, setSalario] = useState("");
   const arquivo = useRef<HTMLInputElement>(null);
 
   const atuais = linhas[modo];
@@ -85,6 +86,7 @@ export default function Home() {
     setCarregando(true);
     const corpo = {
       limite_horas: limite,
+      salario: Number(salario.replace(/\./g, "").replace(",", ".")) || null,
       linhas: atuais.map((l) => ({
         cargo: l.cargo.trim(),
         escala: escalaTexto(l.escala),
@@ -158,6 +160,11 @@ export default function Home() {
             {total} {modo === "quadro" ? "pessoa(s)" : "posto(s)"} em {atuais.length} linha(s)
           </span>
           <span className="spacer" />
+          <label className="campo-salario">
+            <span className="muted">Salário médio (R$)</span>
+            <input inputMode="decimal" placeholder="Ex.: 2.000,00" value={salario}
+                   onChange={(e) => setSalario(e.target.value.replace(/[^\d.,]/g, ""))} aria-label="Salário médio" />
+          </label>
           <span className="muted">Carga semanal máxima</span>
           <div className="abas abas-compactas" role="radiogroup" aria-label="Carga semanal máxima">
             {([42, 40] as const).map((h) => (

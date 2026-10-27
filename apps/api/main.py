@@ -681,7 +681,43 @@ def horistas(blocos, com_intervalo=False, turnos=None):
     return alocar(turnos, settings.DIAS_MAXIMOS_HORISTA, settings.LIMITE_HORAS_SEMANA)
 
 
-def sugerir(blocos, com_intervalo=False):
+def _maior_turno(ini, limite):
+    """Maior turno (minutos no posto, com o intervalo da CLT) que começa em 'ini' e cabe em 'limite' horas trabalhadas."""
+    duracao = round(limite * 60) + 60
+    while horas_turno(ini, ini + duracao) > limite + 1e-9:
+        duracao -= 1
+    return duracao
+
+
+def minimo_de_pessoas(blocos):
+    """
+    Proposta com o mínimo de colaboradores: cada bloco da demanda vira o número de turnos 5x2 cheios
+    (LIMITE_HORAS_SEMANA / DIAS_TRABALHO horas trabalhadas mais o intervalo) mais próximo do que ele pede, sem
+    contratar alguém para cobrir só uma sobra: o posto fecha mais cedo no que passa e fica sem ninguém no
+    intervalo. Se os turnos cobrem o bloco inteiro, eles se sobrepõem como em turnos_com_intervalo.
+    Devolve (blocos ajustados, turnos, {(entrada no dia, duração): minutos da entrada ao início do intervalo}).
+    """
+    limite = settings.LIMITE_HORAS_SEMANA / settings.DIAS_TRABALHO
+    ajustados, turnos, pausas = [], [], {}
+    for ini, fim in blocos:
+        maior = _maior_turno(ini, limite)
+        n = max(1, round((fim - ini) / maior))
+        if n > 1 and n * maior >= fim - ini:
+            novos, p = turnos_com_intervalo([(ini, fim)], limite)
+            if len(novos) == n:
+                ajustados.append((ini, fim))
+                turnos += novos
+                for k, v in p.items():
+                    pausas.setdefault(k, v)
+                continue
+        fim = min(fim, ini + n * maior)
+        cortes = [ini + round(k * (fim - ini) / n) for k in range(n)] + [fim]
+        ajustados.append((ini, fim))
+        turnos += list(zip(cortes, cortes[1:]))
+    return ajustados, turnos, pausas
+
+
+def sugerir(blocos, com_intervalo=False, turnos=None, pausas=None):
     """
     Duas formas de cobrir os blocos (rombo ou demanda):
       revezamento: equipes 5x2 por turno (revezar), com turnos iguais de até LIMITE_HORAS_SEMANA / DIAS_TRABALHO
@@ -690,9 +726,16 @@ def sugerir(blocos, com_intervalo=False):
       horista:     só horistas.
     com_intervalo (dimensionamento): o posto precisa de alguém também no intervalo; os turnos do revezamento
     se sobrepõem para cobri-lo (turnos_com_intervalo), e o intervalo que fica descoberto sobra para horistas.
+    turnos, pausas: os turnos do revezamento já montados e o início dos intervalos (minimo_de_pessoas).
     """
     limite = settings.LIMITE_HORAS_SEMANA / settings.DIAS_TRABALHO
-    turnos, pausas = turnos_com_intervalo(blocos, limite) if com_intervalo else (turnos_iguais(blocos, limite), {})
+    mostrar_intervalo = com_intervalo or turnos is not None
+    if turnos is not None:
+        pausas = pausas or {}
+    elif com_intervalo:
+        turnos, pausas = turnos_com_intervalo(blocos, limite)
+    else:
+        turnos, pausas = turnos_iguais(blocos, limite), {}
     grupos, _ = revezar(turnos)
     linha = Linha()
     falta = [0] * linha.n
@@ -702,7 +745,7 @@ def sugerir(blocos, com_intervalo=False):
     for g in grupos:
         ini, fim = g["turno"]
         inicio = pausas.get((ini % 1440, fim - ini))
-        if com_intervalo and len(turno(ini, fim)) > 1:
+        if mostrar_intervalo and len(turno(ini, fim)) > 1:
             segs = turno(ini, fim, None, None if inicio is None else ini + inicio)
             g["intervalo"] = (segs[0][1], segs[1][0])
         for p in g["pessoas"]:

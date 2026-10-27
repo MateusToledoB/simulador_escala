@@ -9,6 +9,7 @@ class Settings:
     NOMES_EXTENSO = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
 
     LIMITE_HORAS_SEMANA = 42
+    FATOR_ENCARGOS = 1.75         # custo mensal de uma pessoa = salário x fator (encargos e benefícios)
     FOLGAS_POR_SEMANA = 2
     DIAS_TRABALHO = 7 - FOLGAS_POR_SEMANA
     INTERVALO_MAXIMO = 120        # minutos; intervalo pode crescer até 2h (CLT art. 71)

@@ -29,6 +29,7 @@ export type Cargo = {
 
 export type Contratacoes = {
   total: number;
+  custo_mensal: number | null;
   horas_semana: string;
   frases: string[];
   pessoas: {
@@ -59,6 +60,7 @@ export type TurnoRevezamento = {
 
 export type Revezamento = {
   total: number;
+  custo_mensal: number | null;
   horas_semana: string;
   frases: string[];
   turnos: TurnoRevezamento[];
@@ -69,6 +71,8 @@ export type Sugestoes = { revezamento: Revezamento; horista: Contratacoes };
 
 export type Config = {
   limite_horas_semana: number;
+  salario: number | null;
+  fator_encargos: number;
   escala: string;
   intervalo_maximo: string;
   corte_maximo_min: number;
@@ -95,16 +99,26 @@ export type Opcao = {
 export type Resultado = {
   config: Config;
   total_pessoas: number;
+  custo_quadro: number | null;
   sem_horario: LinhaPEC[];
   opcoes: Opcao[];
 };
 
 // Formato da resposta de POST /dimensionar
-export type Dimensionamento = {
-  config: Config;
-  postos: { cargo: string; escala: string; quantidade: number; dias: string }[];
-  sem_horario: LinhaPEC[];
+// Proposta do dimensionamento (api.PROPOSTAS): manter o horário do posto ou o mínimo de colaboradores
+export type Proposta = {
+  id: string;
+  titulo: string;
+  descricao: string;
+  postos: { cargo: string; escala: string; quantidade: number; dias: string; horario: string; reduzido: boolean }[];
   horas_posto_semana: string;
   colaboradores_equivalentes: number;
-  sugestoes: Sugestoes | null;
+  sugestoes: Sugestoes;
+};
+
+export type Dimensionamento = {
+  config: Config;
+  sem_horario: LinhaPEC[];
+  postos: number;
+  propostas: Proposta[];
 };

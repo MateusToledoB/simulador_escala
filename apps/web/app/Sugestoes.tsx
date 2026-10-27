@@ -1,3 +1,4 @@
+import { custo } from "@/lib/moeda";
 import type { Contratacoes, Sugestoes as S, TurnoRevezamento } from "@/lib/types";
 
 function porDia(t: TurnoRevezamento) {
@@ -100,12 +101,13 @@ function Horistas({ s, titulo }: { s: Contratacoes; titulo: string }) {
   );
 }
 
-function Cabecalho({ titulo, total, horas }: { titulo: string; total: number; horas: string }) {
+function Cabecalho({ titulo, total, horas, valor }: { titulo: string; total: number; horas: string; valor: number | null }) {
   return (
     <div className="row" style={{ marginBottom: 8 }}>
       <h3 style={{ margin: 0 }}>{titulo}</h3>
       <span className="spacer" />
       <span className="tag">{total} contratação(ões) · {horas}/semana</span>
+      {valor != null && <span className="tag custo">{custo(valor)}/mês</span>}
     </div>
   );
 }
@@ -116,7 +118,7 @@ export default function Sugestoes({ s, dias, titulo }: { s: S; dias: string[]; t
     <section>
       <h2>{titulo}</h2>
       <div className="card">
-        <Cabecalho titulo="1) Revezamento" total={rev.total} horas={rev.horas_semana} />
+        <Cabecalho titulo="1) Revezamento" total={rev.total} horas={rev.horas_semana} valor={rev.custo_mensal} />
         <p className="muted" style={{ marginTop: 0 }}>
           Equipes 5x2 por turno, com as folgas em dias seguidos em escadinha; horistas para o que a equipe não cobre.
         </p>
@@ -127,7 +129,7 @@ export default function Sugestoes({ s, dias, titulo }: { s: S; dias: string[]; t
       </div>
 
       <div className="card">
-        <Cabecalho titulo="2) Horista" total={s.horista.total} horas={s.horista.horas_semana} />
+        <Cabecalho titulo="2) Horista" total={s.horista.total} horas={s.horista.horas_semana} valor={s.horista.custo_mensal} />
         <p className="muted" style={{ marginTop: 0 }}>Todos por hora (intermitente), pagando só as horas necessárias.</p>
         <ul className="frases">{s.horista.frases.map((f) => <li key={f}>{f}</li>)}</ul>
         <Horistas s={s.horista} titulo="Horários por horista" />

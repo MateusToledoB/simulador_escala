@@ -181,3 +181,7 @@ tr.selecionada td, tr.selecionada:hover td { background: var(--primary-soft); }
 .complementos ul { margin: 6px 0 0; padding-left: 18px; }
 .abas.abas-compactas { margin: 0; }
 .abas-compactas .aba { padding: 6px 12px; }
+
+.tag.custo { background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.campo-salario { display: inline-flex; align-items: center; gap: 8px; }
+.campo-salario input { width: 120px; text-align: right; }

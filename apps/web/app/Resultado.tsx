@@ -1,11 +1,14 @@
 "use client";
 
 import { Fragment, useState } from "react";
+import { custo } from "@/lib/moeda";
 import type { Config, Opcao, Resultado as R } from "@/lib/types";
 import Sugestoes from "./Sugestoes";
 
-const contratacoes = (o: Opcao) =>
-  o.sugestoes ? { revezamento: o.sugestoes.revezamento.total, horista: o.sugestoes.horista.total } : { revezamento: 0, horista: 0 };
+const contratacoes = (o: Opcao) => o.sugestoes
+  ? { revezamento: o.sugestoes.revezamento.total, horista: o.sugestoes.horista.total,
+      custoRevezamento: o.sugestoes.revezamento.custo_mensal, custoHorista: o.sugestoes.horista.custo_mensal }
+  : { revezamento: 0, horista: 0, custoRevezamento: null, custoHorista: null };
 
 /** Todas as opções lado a lado; clicar numa linha abre o detalhe dela. */
 function Comparacao({ opcoes, atual, onEscolher }: { opcoes: Opcao[]; atual: number; onEscolher: (i: number) => void }) {
@@ -33,8 +36,14 @@ function Comparacao({ opcoes, atual, onEscolher }: { opcoes: Opcao[]; atual: num
                     <div className="muted" style={{ fontSize: 12 }}>{o.descricao}</div>
                   </td>
                   <td className="num">{o.rombo.total_horas}</td>
-                  <td className="num">{c.revezamento}</td>
-                  <td className="num">{c.horista}</td>
+                  <td className="num">
+                    {c.revezamento}
+                    {c.custoRevezamento != null && <div className="muted">{custo(c.custoRevezamento)}/mês</div>}
+                  </td>
+                  <td className="num">
+                    {c.horista}
+                    {c.custoHorista != null && <div className="muted">{custo(c.custoHorista)}/mês</div>}
+                  </td>
                 </tr>
               );
             })}
@@ -45,13 +54,17 @@ function Comparacao({ opcoes, atual, onEscolher }: { opcoes: Opcao[]; atual: num
   );
 }
 
-function DetalheOpcao({ o, config, totalPessoas, semHorario }: { o: Opcao; config: Config; totalPessoas: number; semHorario: R["sem_horario"] }) {
+function DetalheOpcao({ o, config, totalPessoas, custoQuadro, semHorario }:
+  { o: Opcao; config: Config; totalPessoas: number; custoQuadro: number | null; semHorario: R["sem_horario"] }) {
   const maxDia = Math.max(1, ...o.rombo.por_dia.map((d) => d.valor));
 
   return (
     <>
       <div className="kpis">
         <div className="kpi"><div className="valor">{totalPessoas}</div><div className="rotulo">colaboradores em {o.cargos.length + semHorario.length} cargo(s)</div></div>
+        {custoQuadro != null && (
+          <div className="kpi"><div className="valor">{custo(custoQuadro)}</div><div className="rotulo">custo mensal do quadro atual (salário x {config.fator_encargos.toLocaleString("pt-BR")})</div></div>
+        )}
         <div className="kpi"><div className="valor">{o.rombo.total_horas}</div><div className="rotulo">descobertas por semana</div></div>
         <div className="kpi"><div className="valor">{(o.rombo.percentual * 100).toFixed(1)}%</div><div className="rotulo">das {o.rombo.horas_demandadas} cobertas hoje</div></div>
         <div className="kpi"><div className="valor">{o.rombo.colaboradores_equivalentes.toLocaleString("pt-BR")}</div><div className="rotulo">colaborador(es) de {config.limite_horas_semana}h equivalentes</div></div>
@@ -179,7 +192,7 @@ export default function Resultado({ r }: { r: R }) {
           </div>
         </>
       )}
-      <DetalheOpcao o={o} config={r.config} totalPessoas={r.total_pessoas} semHorario={r.sem_horario} />
+      <DetalheOpcao o={o} config={r.config} totalPessoas={r.total_pessoas} custoQuadro={r.custo_quadro} semHorario={r.sem_horario} />
     </>
   );
 }
