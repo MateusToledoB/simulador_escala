@@ -161,9 +161,10 @@ button.link:hover { text-decoration: underline; }
 .faixa-turno + .faixa-turno { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
 code.coluna.opcional { background: var(--subtle); color: var(--muted); border: 1px solid var(--border); }
 
-/* rodapé */
+/* rodapé fixo na base da tela; o body reserva a altura dele para não cobrir o conteúdo */
+body { padding-bottom: 32px; }
 .rodape {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px;
-  max-width: 1180px; margin: 0 auto; padding: 20px 16px 28px;
-  border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; text-align: center;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  padding: 6px 16px; background: var(--surface); border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center;
 }
