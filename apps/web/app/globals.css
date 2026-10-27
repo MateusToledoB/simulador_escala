@@ -168,3 +168,4 @@ body { padding-bottom: 32px; }
   padding: 6px 16px; background: var(--surface); border-top: 1px solid var(--border);
   color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center;
 }
+.intervalo { display: inline-flex; gap: 6px; align-items: center; padding: 2px 4px 2px 8px; border-radius: 8px; background: var(--subtle); border: 1px solid var(--border); }

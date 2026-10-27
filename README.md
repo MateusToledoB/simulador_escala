@@ -23,7 +23,7 @@ O site chama `/api/*`, que o Next repassa para a API (`API_URL`, padrão `http:/
 
 ## API
 
-- `POST /simular`: `{"linhas": [{"cargo", "escala", "quantidade", "intervalo"?}]}` devolve o resultado da simulação.
+- `POST /simular`: `{"linhas": [{"cargo", "escala", "quantidade"}]}` devolve o resultado da simulação.
   A escala segue o texto da PEC: `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` ou `ESCALA 6 X 1 (07:30 - 16:00)`.
 - `POST /dimensionar`: mesmo corpo, mas cada linha é a demanda (quantidade = postos ocupados nos dias e horário da
   escala, ex. 5 postos em `ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)`). Devolve as equipes 5x2 por turno, com folgas
@@ -39,14 +39,15 @@ Total e QF_ID, são ignoradas; o nome não diferencia maiúsculas e tolera acent
 | Coluna | Tipo | O que é | Exemplo |
 |---|---|---|---|
 | `QF_CARGO` | Texto | Cargo; o código do início é removido | `14833188 - AUXILIAR DE LIMPEZA I - DIA` |
-| `Escala` | Texto | Dias e horário de entrada e saída | `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` |
+| `Escala` | Texto | Dias, entrada e saída e, se houver, o intervalo | `ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)` |
 | `Quantidade` | Número inteiro | Pessoas do cargo nessa escala | `4` |
-| `Intervalo` | Opcional | Intervalo que a pessoa faz, em minutos ou HH:MM; vazio = mínimo da CLT | `60` |
 
 Formatos aceitos em `Escala`:
 
 - `ESCALA <DIA> - <DIA> (HH:MM - HH:MM)`: dias corridos, ex. `ESCALA SEGUNDA - SABADO (07:00 - 15:20)`.
   Basta o início do dia (SEG, TER, QUA, QUI, SEX, SAB, DOM), com ou sem acento.
+- Intervalo (opcional) com início e fim dentro dos parênteses: `(07:30 - 17:18, INTERVALO 12:00 - 13:00)`.
+  Sem ele, o cálculo usa o mínimo da CLT no meio do turno; intervalo fora do turno deixa a linha fora do cálculo.
 - Escala dinâmica (horário diferente por dia): faixas separadas por `/`, ex.
   `ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)`. Um dia sozinho também vale: `SABADO (08:00 - 12:00)`.
 - `ESCALA N X M (HH:MM - HH:MM)`: ciclo com N + M = 7, ex. `ESCALA 6 X 1 (07:30 - 16:00)` (N dias a partir de segunda).

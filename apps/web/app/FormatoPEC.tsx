@@ -8,16 +8,16 @@ import { useRef } from "react";
 const COLUNAS = [
   { nome: "QF_CARGO", tipo: "Texto", uso: "Cargo. O código numérico do início é removido.",
     exemplo: "14833188 - AUXILIAR DE LIMPEZA I - DIA" },
-  { nome: "Escala", tipo: "Texto", uso: "Dias e horário de entrada e saída (formatos abaixo).",
-    exemplo: "ESCALA SEGUNDA - SEXTA (07:30 - 17:18)" },
+  { nome: "Escala", tipo: "Texto", uso: "Dias, horário de entrada e saída e, se houver, o intervalo (formatos abaixo).",
+    exemplo: "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)" },
   { nome: "Quantidade", tipo: "Número inteiro", uso: "Pessoas do cargo nessa escala.", exemplo: "4" },
-  { nome: "Intervalo", tipo: "Opcional", uso: "Intervalo que a pessoa faz, em minutos ou HH:MM. Vazio = mínimo da CLT.",
-    exemplo: "60" },
 ];
 
 const ESCALAS = [
   { formato: "ESCALA <DIA> - <DIA> (HH:MM - HH:MM)", exemplo: "ESCALA SEGUNDA - SABADO (07:00 - 15:20)",
     nota: "Dias corridos. Basta o início do dia (SEG, TER, QUA, QUI, SEX, SAB, DOM), com ou sem acento." },
+  { formato: "(HH:MM - HH:MM, INTERVALO HH:MM - HH:MM)", exemplo: "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)",
+    nota: "Intervalo opcional, com início e fim, dentro dos parênteses de cada horário. Sem ele, usa o mínimo da CLT no meio do turno." },
   { formato: "Faixas separadas por /", exemplo: "ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)",
     nota: "Escala dinâmica: horário diferente por dia. Um dia sozinho também vale, ex.: SABADO (08:00 - 12:00)." },
   { formato: "ESCALA N X M (HH:MM - HH:MM)", exemplo: "ESCALA 6 X 1 (07:30 - 16:00)",

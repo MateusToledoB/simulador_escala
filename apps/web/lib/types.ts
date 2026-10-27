@@ -1,14 +1,21 @@
 // Formato da resposta de POST /simular (apps/api/api.py: resultado_json)
 
-export type LinhaPEC = { cargo: string; escala: string; quantidade: number; intervalo?: number | null };
+export type LinhaPEC = { cargo: string; escala: string; quantidade: number };
 
-export type Turno = { entrada: string; saida: string; intervalo: string; horas: string; descricao: string };
+export type Turno = {
+  entrada: string;
+  saida: string;
+  intervalo: string;
+  intervalo_inicio: string | null;
+  intervalo_fim: string | null;
+  horas: string;
+  descricao: string;
+};
 
 export type Cargo = {
   cargo: string;
   escala: string;
   quantidade: number;
-  intervalo_informado: string | null;
   dias: string;
   faixas: { dias: string; antes: Turno; depois: Turno }[];
   semana_antes: string;

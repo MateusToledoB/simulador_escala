@@ -40,7 +40,6 @@ export default function Resultado({ r }: { r: R }) {
                       <td>
                         {c.cargo}
                         <div className="preview">{c.escala}</div>
-                        {c.intervalo_informado && <div className="muted" style={{ fontSize: 12 }}>intervalo informado: {c.intervalo_informado}</div>}
                       </td>
                       <td className="num">{c.quantidade}</td>
                       <td>
@@ -57,7 +56,11 @@ export default function Resultado({ r }: { r: R }) {
                             <div key={f.dias} className="faixa-turno">
                               {c.faixas.length > 1 && <div className="muted">{f.dias}</div>}
                               {f[quando].entrada}–{f[quando].saida}
-                              <div className="muted">int {f[quando].intervalo} · {f[quando].horas}</div>
+                              <div className="muted">
+                                {f[quando].intervalo_inicio
+                                  ? `int ${f[quando].intervalo_inicio}–${f[quando].intervalo_fim} (${f[quando].intervalo})`
+                                  : "sem intervalo"} · {f[quando].horas}
+                              </div>
                             </div>
                           ))}
                         </td>

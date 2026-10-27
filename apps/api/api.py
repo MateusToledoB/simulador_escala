@@ -26,10 +26,11 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 class LinhaPEC(BaseModel):
     cargo: str
-    escala: str = Field(description="como na PEC: 'ESCALA SEGUNDA - SEXTA (07:30 - 17:18)', 'ESCALA 6 X 1 (07:30 - 16:00)' "
-                                    "ou dinâmica: 'ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)'")
+    escala: str = Field(description="como na PEC: 'ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)', "
+                                    "'ESCALA 6 X 1 (07:30 - 16:00)' ou dinâmica: "
+                                    "'ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)'; sem intervalo, "
+                                    "usa o mínimo da CLT")
     quantidade: int = Field(gt=0)
-    intervalo: int | None = Field(None, ge=0, le=300, description="minutos de intervalo; vazio = mínimo da CLT")
 
 
 class Simulacao(BaseModel):
@@ -45,6 +46,8 @@ def _turno_json(segs):
         "entrada": fmt_hora(ini),
         "saida": fmt_hora(fim),
         "intervalo": fmt_horas(intervalo(segs) / 60),
+        "intervalo_inicio": fmt_hora(segs[0][1]) if len(segs) > 1 else None,
+        "intervalo_fim": fmt_hora(segs[1][0]) if len(segs) > 1 else None,
         "horas": fmt_horas(horas_legais(segs)),
         "descricao": desc_turno(segs),
     }
@@ -56,7 +59,6 @@ def _cargo_json(e):
         "cargo": e["cargo"],
         "escala": e["escala"],
         "quantidade": e["quantidade"],
-        "intervalo_informado": None if e.get("intervalo") is None else fmt_horas(e["intervalo"] / 60),
         "dias": fmt_dias(e["dias"]),
         "faixas": [{"dias": fmt_dias(d), "antes": _turno_json(antes), "depois": _turno_json(depois)}
                    for d, antes, depois in faixas(e)],
@@ -167,7 +169,7 @@ def dimensionar(simulacao: Simulacao):
         if not horarios:
             sem_horario.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade})
             continue
-        blocos += [(d * 1440 + ini, d * 1440 + fim) for d, (ini, fim) in horarios.items() for _ in range(l.quantidade)]
+        blocos += [(d * 1440 + ini, d * 1440 + fim) for d, (ini, fim, _) in horarios.items() for _ in range(l.quantidade)]
         postos.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade, "dias": fmt_dias(list(horarios))})
     horas = sum(fim - ini for ini, fim in blocos) / 60
     return {
@@ -182,16 +184,17 @@ def dimensionar(simulacao: Simulacao):
 
 MODELO_COLUNAS = [  # (coluna, tipo, o que é, exemplo); a ordem é a do modelo
     ("QF_CARGO", "Texto", "Cargo. O código numérico do início é removido.", "14833188 - AUXILIAR DE LIMPEZA I - DIA"),
-    ("Escala", "Texto", "Dias e horário: 'ESCALA SEGUNDA - SEXTA (07:30 - 17:18)' ou 'ESCALA 6 X 1 (07:30 - 16:00)'.",
-     "ESCALA SEGUNDA - SEXTA (07:30 - 17:18)"),
+    ("Escala", "Texto", "Dias, horário e, se houver, o intervalo: "
+     "'ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)' ou 'ESCALA 6 X 1 (07:30 - 16:00)'.",
+     "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)"),
     ("Quantidade", "Número inteiro", "Pessoas do cargo nessa escala.", "4"),
-    ("Intervalo", "Opcional: minutos ou HH:MM", "Intervalo que a pessoa faz. Vazio = mínimo da CLT (1h acima de 6h).", "60"),
 ]
 MODELO_EXEMPLOS = [
-    ["200 - AUXILIAR DE LIMPEZA", "ESCALA SEGUNDA - SEXTA (07:30 - 17:18)", 4, None],
-    ["201 - AUXILIAR DE LIMPEZA - 6X1", "ESCALA 6 X 1 (07:30 - 16:00)", 2, None],
-    ["202 - LIDER DE LIMPEZA", "ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)", 1, 60],
-    ["203 - PORTEIRO", "ESCALA SEGUNDA - SABADO (22:00 - 06:00)", 2, 120],
+    ["200 - AUXILIAR DE LIMPEZA", "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)", 4],
+    ["201 - AUXILIAR DE LIMPEZA - 6X1", "ESCALA 6 X 1 (07:30 - 16:00)", 2],
+    ["202 - LIDER DE LIMPEZA", "ESCALA SEGUNDA - QUINTA (08:00 - 19:00, INTERVALO 12:00 - 13:00) / "
+                               "SEXTA (08:00 - 18:00, INTERVALO 12:00 - 13:00)", 1],
+    ["203 - PORTEIRO", "ESCALA SEGUNDA - SABADO (22:00 - 06:00, INTERVALO 02:00 - 03:00)", 2],
 ]
 
 
@@ -216,7 +219,8 @@ def modelo():
         "Escala por ciclo: ESCALA N X M (HH:MM - HH:MM), com N + M = 7. Os N dias contam a partir de segunda.",
         "Escala dinâmica (horário diferente por dia): junte as faixas com '/', ex.: "
         "ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00). Um dia sozinho também vale: SABADO (08:00 - 12:00).",
-        "Intervalo é opcional: minutos (60) ou HH:MM (1:00). Vazio usa o mínimo da CLT.",
+        "Intervalo (opcional) dentro dos parênteses, com início e fim: (07:30 - 17:18, INTERVALO 12:00 - 13:00). "
+        "Sem ele, o cálculo usa o mínimo da CLT no meio do turno. Intervalo fora do turno deixa a linha fora do cálculo.",
         "Saída menor que a entrada é turno que vira a noite, ex.: (22:00 - 06:00).",
         "Escalas fora desses formatos (12x36, vazia) somam pessoas, mas ficam fora do cálculo.",
     ]:
@@ -224,7 +228,7 @@ def modelo():
 
     cabecalho = Font(bold=True, color="FFFFFF")
     fundo = PatternFill("solid", fgColor="1F5EFF")
-    for aba, larguras in ((pec, [40, 66, 12, 12]), (inst, [14, 26, 70, 48])):
+    for aba, larguras in ((pec, [40, 96, 12]), (inst, [14, 16, 70, 60])):
         for celula in aba[1]:
             celula.font, celula.fill = cabecalho, fundo
         for i, largura in enumerate(larguras):
@@ -250,7 +254,5 @@ async def importar(arquivo: UploadFile):
             por_cr = ler_linhas(caminho)
         except KeyError as coluna:
             raise HTTPException(400, f"Coluna {coluna} não encontrada. Necessárias: QF_CARGO, Escala, Quantidade.")
-        except ValueError as erro:
-            raise HTTPException(400, str(erro))
-    campos = ("cargo", "escala", "quantidade", "intervalo")
+    campos = ("cargo", "escala", "quantidade")
     return {"centros": [{"cr": cr, "linhas": [{k: l[k] for k in campos} for l in linhas]} for cr, linhas in por_cr.items()]}
