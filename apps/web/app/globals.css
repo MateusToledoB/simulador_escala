@@ -175,3 +175,9 @@ body { padding-bottom: 32px; }
 tr.clicavel { cursor: pointer; }
 tr.clicavel:hover td { background: var(--subtle); }
 tr.selecionada td, tr.selecionada:hover td { background: var(--primary-soft); }
+
+.grade-horas { font-weight: 700; font-variant-numeric: tabular-nums; }
+.complementos { margin-top: 8px; padding: 10px 12px; font-size: 13px; background: var(--subtle); border: 1px solid var(--border); border-radius: 8px; }
+.complementos ul { margin: 6px 0 0; padding-left: 18px; }
+.abas.abas-compactas { margin: 0; }
+.abas-compactas .aba { padding: 6px 12px; }

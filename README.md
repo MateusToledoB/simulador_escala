@@ -23,13 +23,16 @@ O site chama `/api/*`, que o Next repassa para a API (`API_URL`, padrão `http:/
 
 ## API
 
-- `POST /simular`: `{"linhas": [{"cargo", "escala", "quantidade"}]}` devolve uma opção por forma de ajuste (aumentar o intervalo, manter o intervalo e sair mais cedo, manter o intervalo e entrar mais tarde), cada uma com o seu rombo e as sugestões de contratação.
+- `POST /simular`: `{"limite_horas": 42 | 40, "linhas": [{"cargo", "escala", "quantidade"}]}` (carga semanal máxima, padrão 42) devolve uma opção por forma de ajuste (aumentar o intervalo, manter o intervalo e sair mais cedo, manter o intervalo e entrar mais tarde), cada uma com o seu rombo e as sugestões de contratação.
   A escala segue o texto da PEC: `ESCALA SEGUNDA - SEXTA (07:30 - 17:18)` ou `ESCALA 6 X 1 (07:30 - 16:00)`.
 - `POST /dimensionar`: mesmo corpo, mas cada linha é a demanda (quantidade = postos ocupados nos dias e horário da
   escala, ex. 5 postos em `ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)`). Devolve as equipes 5x2 por turno, com folgas
   em escadinha (grade semana x pessoa), e a alternativa só com horistas. O intervalo da CLT entra no cálculo: o
   posto não pode ficar vazio, então os turnos se sobrepõem para um cobrir o intervalo do outro (o que sobra vai para
-  horistas), e cada turno 5x2 usa as 42h da semana (8h24 por dia mais o intervalo) quando a demanda permite.
+  horistas), e cada turno 5x2 usa a carga semanal inteira (42h: 8h24 por dia; 40h: 8h) quando a demanda permite.
+- Nas duas rotas, quem fica abaixo da carga no revezamento é completado com o que sobraria para horistas, nos dias em
+  que já trabalha: emendando no turno ou em turno quebrado (pelo menos 1h entre as partes, até 10h no dia, com
+  interjornada de 11h). Se os turnos de uma pessoa cabem inteiros nas outras, ela deixa de ser contratada.
 - `GET /modelo`: baixa o xlsx modelo da PEC (cabeçalho, linhas de exemplo e aba de instruções).
 - `POST /importar`: recebe o xlsx da PEC e devolve as linhas (colunas QF_CARGO, Escala, Quantidade).
 

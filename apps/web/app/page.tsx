@@ -15,7 +15,7 @@ const MODOS = {
   quadro: {
     rotulo: "Converter quadro atual",
     descricao: "Informe o quadro como na PEC (cargo, horário/escala e quantidade de pessoas). O simulador leva cada " +
-               "cargo para 5x2 de 42h, mede o rombo de cobertura e sugere contratações.",
+               "cargo para 5x2 com a carga semanal escolhida, mede o rombo de cobertura e sugere contratações.",
     rotulos: { cargo: "Cargo", quantidade: "Quantidade", exemplo: "Ex.: Auxiliar de limpeza" },
     rota: "/api/simular",
   },
@@ -23,7 +23,7 @@ const MODOS = {
     rotulo: "Dimensionar por demanda",
     descricao: "Informe quantos postos precisam estar ocupados, em quais dias e horário (ex.: 5 postos de segunda a " +
                "domingo, das 06h às 22h). O simulador monta as equipes 5x2 por turno, com folgas em escadinha, " +
-               "aproveitando as 42h de cada pessoa e cobrindo o posto também no intervalo.",
+               "aproveitando a carga semanal inteira de cada pessoa e cobrindo o posto também no intervalo.",
     rotulos: { cargo: "Posto", quantidade: "Postos", exemplo: "Ex.: Limpeza" },
     rota: "/api/dimensionar",
   },
@@ -46,6 +46,7 @@ export default function Home() {
   const [dimensionamento, setDimensionamento] = useState<D | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [limite, setLimite] = useState<40 | 42>(42);
   const arquivo = useRef<HTMLInputElement>(null);
 
   const atuais = linhas[modo];
@@ -83,6 +84,7 @@ export default function Home() {
     if (atuais.some((l) => !l.cargo.trim())) return setErro(`Preencha o campo ${config.rotulos.cargo} de todas as linhas.`);
     setCarregando(true);
     const corpo = {
+      limite_horas: limite,
       linhas: atuais.map((l) => ({
         cargo: l.cargo.trim(),
         escala: escalaTexto(l.escala),
@@ -156,6 +158,15 @@ export default function Home() {
             {total} {modo === "quadro" ? "pessoa(s)" : "posto(s)"} em {atuais.length} linha(s)
           </span>
           <span className="spacer" />
+          <span className="muted">Carga semanal máxima</span>
+          <div className="abas abas-compactas" role="radiogroup" aria-label="Carga semanal máxima">
+            {([42, 40] as const).map((h) => (
+              <button key={h} role="radio" aria-checked={limite === h} className={limite === h ? "aba ativa" : "aba"}
+                      onClick={() => setLimite(h)}>
+                {h}h
+              </button>
+            ))}
+          </div>
           <button className="primario" onClick={simular} disabled={carregando}>
             {carregando ? "Calculando…" : modo === "quadro" ? "Simular" : "Dimensionar"}
           </button>

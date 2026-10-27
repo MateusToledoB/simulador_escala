@@ -5,9 +5,12 @@ resultado de main.calcular em JSON, com os mesmos textos do relatório do termin
     uvicorn api:app --reload --port 8000
 """
 import tempfile
+import threading
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +19,7 @@ from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel, Field
 
 from core.settings import settings
-from main import (ESTRATEGIAS, cenarios, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
+from main import (ESTRATEGIAS, cenarios, frase_extras, horas_pessoa, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
                   frases_horistas, horas_legais, horas_semana, horas_turno, intervalo, janela, ler_escala, ler_linhas, meta_semana,
                   montar_equipes, nome_turno, por_dia, sugerir, total_revezamento)
 
@@ -35,6 +38,22 @@ class LinhaPEC(BaseModel):
 
 class Simulacao(BaseModel):
     linhas: list[LinhaPEC] = Field(min_length=1)
+    limite_horas: Literal[40, 42] = Field(42, description="carga semanal máxima de cada pessoa")
+
+
+_calculo = threading.Lock()
+
+
+@contextmanager
+def _limite(horas):
+    """Calcula com a carga semanal escolhida; o lock impede que duas simulações com cargas diferentes se misturem."""
+    with _calculo:
+        antes = settings.LIMITE_HORAS_SEMANA
+        settings.LIMITE_HORAS_SEMANA = horas
+        try:
+            yield
+        finally:
+            settings.LIMITE_HORAS_SEMANA = antes
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +124,7 @@ def _horistas_json(pessoas):
 
 def _revezamento_json(rev):
     """Equipes 5x2 por turno (com a grade semana x pessoa) e os horistas que cobrem o resto."""
-    horas = sum(horas_turno(*t) for g in rev["turnos"] for p in g["pessoas"] for t in p["escala"].values())
+    horas = sum(horas_pessoa(p) for g in rev["turnos"] for p in g["pessoas"])
     horas += sum(horas_turno(*t) for p in rev["horistas"] for t in p.values())
     return {
         "total": total_revezamento(rev),
@@ -121,7 +140,10 @@ def _revezamento_json(rev):
             "por_dia": por_dia(g),
             "demanda": g["falta"],
             "pessoas": [{"nome": chr(65 + i) if i < 26 else f"P{i + 1}", "folgas": p["folgas"],
-                         "trabalha": [d in p["escala"] for d in range(7)]} for i, p in enumerate(g["pessoas"])],
+                         "trabalha": [d in p["escala"] for d in range(7)],
+                         "complemento": [d in p.get("extras", {}) for d in range(7)],
+                         "extras": frase_extras(p) if p.get("extras") else None,
+                         "horas_semana": fmt_horas(horas_pessoa(p))} for i, p in enumerate(g["pessoas"])],
         } for g in rev["turnos"]],
         "horistas": _horistas_json(rev["horistas"]),
     }
@@ -183,7 +205,8 @@ def health():
 @app.post("/simular")
 def simular(simulacao: Simulacao):
     equipes, sem_horario = montar_equipes([l.model_dump() for l in simulacao.linhas])
-    return resultado_json(cenarios(equipes), equipes, sem_horario)
+    with _limite(simulacao.limite_horas):
+        return resultado_json(cenarios(equipes), equipes, sem_horario)
 
 
 @app.post("/dimensionar")
@@ -201,14 +224,15 @@ def dimensionar(simulacao: Simulacao):
         blocos += [(d * 1440 + ini, d * 1440 + fim) for d, (ini, fim, _) in horarios.items() for _ in range(l.quantidade)]
         postos.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade, "dias": fmt_dias(list(horarios))})
     horas = sum(fim - ini for ini, fim in blocos) / 60
-    return {
-        "config": _config_json(),
-        "postos": postos,
-        "sem_horario": sem_horario,
-        "horas_posto_semana": fmt_horas(horas),
-        "colaboradores_equivalentes": round(horas / settings.LIMITE_HORAS_SEMANA, 1),
-        "sugestoes": _sugestoes_json(sugerir(sorted(blocos), com_intervalo=True)) if blocos else None,
-    }
+    with _limite(simulacao.limite_horas):
+        return {
+            "config": _config_json(),
+            "postos": postos,
+            "sem_horario": sem_horario,
+            "horas_posto_semana": fmt_horas(horas),
+            "colaboradores_equivalentes": round(horas / settings.LIMITE_HORAS_SEMANA, 1),
+            "sugestoes": _sugestoes_json(sugerir(sorted(blocos), com_intervalo=True)) if blocos else None,
+        }
 
 
 MODELO_COLUNAS = [  # (coluna, tipo, o que é, exemplo); a ordem é a do modelo

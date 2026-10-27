@@ -26,6 +26,7 @@ function GradeTurno({ t, dias }: { t: TurnoRevezamento; dias: string[] }) {
             <tr>
               <th>Equipe</th>
               {dias.map((d) => <th key={d}>{d}</th>)}
+              <th>Semana</th>
             </tr>
           </thead>
           <tbody>
@@ -34,9 +35,12 @@ function GradeTurno({ t, dias }: { t: TurnoRevezamento; dias: string[] }) {
                 <td className="grade-nome">{p.nome}</td>
                 {p.trabalha.map((trabalha, i) => (
                   <td key={i}>
-                    {trabalha ? <span className="celula t">T</span> : <span className="celula f">F</span>}
+                    {!trabalha ? <span className="celula f">F</span>
+                      : p.complemento[i] ? <span className="celula t" title="Trabalha com complemento (extensão ou turno quebrado)">T+</span>
+                      : <span className="celula t">T</span>}
                   </td>
                 ))}
+                <td className="grade-horas">{p.horas_semana}</td>
               </tr>
             ))}
           </tbody>
@@ -44,16 +48,29 @@ function GradeTurno({ t, dias }: { t: TurnoRevezamento; dias: string[] }) {
             <tr>
               <td>Trabalhando</td>
               {t.por_dia.map((n, i) => <td key={i}>{n}</td>)}
+              <td />
             </tr>
             <tr>
               <td>Necessário</td>
               {t.demanda.map((n, i) => (
                 <td key={i} className={n > t.por_dia[i] ? "falta" : undefined}>{n}</td>
               ))}
+              <td />
             </tr>
           </tfoot>
         </table>
       </div>
+      {t.pessoas.some((p) => p.extras) && (
+        <div className="complementos">
+          <strong>T+ = complemento para aproveitar a semana inteira</strong> (emenda no turno ou turno quebrado, com
+          pelo menos 1h entre as partes):
+          <ul>
+            {t.pessoas.filter((p) => p.extras).map((p) => (
+              <li key={p.nome}><strong>{p.nome}</strong>: {p.extras} <span className="muted">· {p.horas_semana} por semana</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
       {faltaHorista && (
         <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
           Onde o necessário passa do que a equipe cobre, a diferença fica com os horistas abaixo.

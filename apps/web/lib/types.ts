@@ -47,7 +47,14 @@ export type TurnoRevezamento = {
   horas_semana: string;
   por_dia: number[];
   demanda: number[];
-  pessoas: { nome: string; folgas: number[]; trabalha: boolean[] }[];
+  pessoas: {
+    nome: string;
+    folgas: number[];
+    trabalha: boolean[];
+    complemento: boolean[];
+    extras: string | null;
+    horas_semana: string;
+  }[];
 };
 
 export type Revezamento = {

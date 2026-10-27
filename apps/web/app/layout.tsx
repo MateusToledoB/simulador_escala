@@ -4,7 +4,7 @@ import Rodape from "./Rodape";
 
 export const metadata: Metadata = {
   title: "Simulador de escala",
-  description: "Simula a escala 5x2 de 42h a partir do quadro da PEC e sugere contratações para cobrir o rombo.",
+  description: "Simula a escala 5x2 de 42h ou 40h a partir do quadro da PEC e sugere contratações para cobrir o rombo.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

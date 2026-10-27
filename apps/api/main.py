@@ -535,8 +535,146 @@ def revezar(turnos):
     return grupos, sobra
 
 
-def horistas(blocos, com_intervalo=False):
-    turnos = turnos_do_rombo(blocos)
+def _horas_dia(pecas):
+    """Horas trabalhadas no dia: partes emendadas contam como um turno só (com o intervalo da CLT)."""
+    corridas = []
+    for ini, fim in sorted(pecas):
+        if corridas and ini <= corridas[-1][1]:
+            corridas[-1][1] = max(fim, corridas[-1][1])
+        else:
+            corridas.append([ini, fim])
+    return sum(horas_turno(ini, fim) for ini, fim in corridas)
+
+
+def pecas_dia(pessoa, dia):
+    return [pessoa["escala"][dia]] + pessoa.get("extras", {}).get(dia, [])
+
+
+def horas_pessoa(pessoa) -> float:
+    return sum(_horas_dia(pecas_dia(pessoa, d)) for d in pessoa["escala"])
+
+
+def _interjornada(janelas):
+    """Janelas [(entrada, saída)] dos dias trabalhados respeitam a interjornada (semana circular)?"""
+    turnos = sorted(janelas)
+    proximos = turnos[1:] + [(turnos[0][0] + 7 * 1440, None)]
+    return all(b[0] - a[1] >= settings.INTERJORNADA_MINIMA * 60 for a, b in zip(turnos, proximos))
+
+
+def _encaixe(pessoa, dia, parte):
+    """
+    A pessoa pode assumir 'parte' (entrada, saída) no dia em que já trabalha? Sem sobrepor o que ela já faz, com
+    pelo menos 1h entre as partes (turno quebrado) ou emendada, dentro da semana (LIMITE_HORAS_SEMANA), da jornada
+    do dia (JORNADA_MAXIMA_DIA + 2h) e da interjornada. Devolve a preferência (emenda?, horas) ou None.
+    """
+    if dia not in pessoa["escala"]:
+        return None
+    pecas = pecas_dia(pessoa, dia)
+    distancias = [max(x - parte[1], parte[0] - y) for x, y in pecas]
+    if any(dist < 0 or 0 < dist < 60 for dist in distancias):
+        return None  # sobrepõe ou a folga entre as partes não dá o intervalo
+    antes, depois = _horas_dia(pecas), _horas_dia(pecas + [parte])
+    if (depois > settings.JORNADA_MAXIMA_DIA + 2 + 1e-9
+            or horas_pessoa(pessoa) - antes + depois > settings.LIMITE_HORAS_SEMANA + 1e-9):
+        return None
+    janelas = []
+    for k in pessoa["escala"]:
+        dia_k = pecas_dia(pessoa, k) + ([parte] if k == dia else [])
+        janelas.append((min(x for x, _ in dia_k), max(y for _, y in dia_k)))
+    if not _interjornada(janelas):
+        return None
+    return 0 in distancias, horas_turno(*parte)  # emenda no turno antes de quebrar
+
+
+def completar(grupos, turnos):
+    """
+    Aproveita ao máximo cada pessoa do revezamento: com os turnos que sobram (que iriam para horistas), nos dias
+    em que ela já trabalha, completa a semana até LIMITE_HORAS_SEMANA, emendando no turno (entra antes ou sai
+    depois) ou em turno quebrado (_encaixe); o turno que não cabe inteiro é cortado e o resto continua sobrando.
+    Depois junta as pessoas que não chegam à meta (consolidar). Grava em cada pessoa "extras" {dia: [(ini, fim)]}
+    e devolve os turnos que ainda sobram.
+    """
+    sobra = sorted(turnos)
+    for g in grupos:
+        for p in g["pessoas"]:
+            p["extras"] = {}
+            while True:
+                falta = settings.LIMITE_HORAS_SEMANA - horas_pessoa(p)
+                melhor = None
+                for i, (a, b) in enumerate(sobra):
+                    d = a // 1440 % 7
+                    if d not in p["escala"]:
+                        continue
+                    for parte in _aparar(a, b, pecas_dia(p, d), falta):
+                        chave = _encaixe(p, d, parte)
+                        if chave is not None and (melhor is None or chave > melhor[0]):
+                            melhor = (chave, i, d, parte)
+                if melhor is None:
+                    break
+                _, i, d, (ini, fim) = melhor
+                a, b = sobra.pop(i)
+                sobra += [t for t in ((a, ini), (fim, b)) if t[1] > t[0]]
+                sobra.sort()
+                p["extras"].setdefault(d, []).append((ini, fim))
+    consolidar(grupos)
+    return sobra
+
+
+def consolidar(grupos):
+    """
+    Junta pessoas do revezamento que não chegam à meta: a que trabalha menos passa todos os seus turnos para as
+    outras, como extensão ou turno quebrado (_encaixe), se couberem inteiros; aí a contratação dela deixa de ser
+    necessária. O turno dela continua contando como coberto no grupo de origem (grupo["cobertos"] por dia).
+    """
+    juntou = True
+    while juntou:
+        juntou = False
+        pessoas = sorted(((horas_pessoa(p), gi, pi) for gi, g in enumerate(grupos) for pi, p in enumerate(g["pessoas"])))
+        for horas, gi, pi in pessoas:
+            if horas >= settings.LIMITE_HORAS_SEMANA - 1e-9:
+                break
+            p = grupos[gi]["pessoas"][pi]
+            outras = [q for g in grupos for q in g["pessoas"] if q is not p]
+            guardado = [{d: list(v) for d, v in q["extras"].items()} for q in outras]
+            passou = True
+            for d in p["escala"]:
+                for parte in pecas_dia(p, d):
+                    opcoes = [(chave, k) for k, q in enumerate(outras) if (chave := _encaixe(q, d, parte)) is not None]
+                    if not opcoes:
+                        passou = False
+                        break
+                    outras[max(opcoes)[1]]["extras"].setdefault(d, []).append(parte)
+                if not passou:
+                    break
+            if passou:
+                cobertos = grupos[gi].setdefault("cobertos", [0] * 7)
+                for d in p["escala"]:
+                    cobertos[d] += 1
+                del grupos[gi]["pessoas"][pi]
+                juntou = True
+                break
+            for q, extras in zip(outras, guardado):
+                q["extras"] = extras
+    grupos[:] = [g for g in grupos if g["pessoas"]]
+
+
+def _aparar(a, b, pecas, falta):
+    """Partes de a-b que cabem nas horas que faltam (com o dia já trabalhado): cortando o fim ou o início."""
+    partes = set()
+    for corta_fim in (True, False):
+        ini, fim = a, b
+        while fim - ini >= settings.SLOT and _horas_dia(pecas + [(ini, fim)]) - _horas_dia(pecas) > falta + 1e-9:
+            if corta_fim:
+                fim -= 15
+            else:
+                ini += 15
+        if fim - ini >= settings.SLOT:
+            partes.add((ini, fim))
+    return partes
+
+
+def horistas(blocos, com_intervalo=False, turnos=None):
+    turnos = turnos_do_rombo(blocos) if turnos is None else list(turnos)
     if com_intervalo:  # o posto fica descoberto no intervalo de cada horista: vira um turno para outro horista
         turnos += [(segs[0][1], segs[1][0]) for segs in (turno(*t) for t in turnos)
                    if len(segs) > 1 and segs[1][0] - segs[0][1] >= settings.SLOT]
@@ -547,7 +685,8 @@ def sugerir(blocos, com_intervalo=False):
     """
     Duas formas de cobrir os blocos (rombo ou demanda):
       revezamento: equipes 5x2 por turno (revezar), com turnos iguais de até LIMITE_HORAS_SEMANA / DIAS_TRABALHO
-                   horas, e horistas para o que as equipes deixam descoberto;
+                   horas, completadas até LIMITE_HORAS_SEMANA com o que sobra (completar), e horistas para o
+                   que as equipes deixam descoberto;
       horista:     só horistas.
     com_intervalo (dimensionamento): o posto precisa de alguém também no intervalo; os turnos do revezamento
     se sobrepõem para cobri-lo (turnos_com_intervalo), e o intervalo que fica descoberto sobra para horistas.
@@ -572,9 +711,9 @@ def sugerir(blocos, com_intervalo=False):
                 for seg in segs:
                     for s in linha.slots(0, [seg]):
                         falta[s] -= 1
-    resto = blocos_de_falta([max(0, f) for f in falta])
+    sobra = completar(grupos, turnos_do_rombo(blocos_de_falta([max(0, f) for f in falta])))
     return {
-        "revezamento": {"turnos": grupos, "horistas": horistas(resto, com_intervalo)},
+        "revezamento": {"turnos": grupos, "horistas": horistas(None, com_intervalo, sobra)},
         "horista": horistas(blocos, com_intervalo),
     }
 
@@ -703,8 +842,9 @@ def nome_turno(ini) -> str:
 
 
 def por_dia(grupo):
-    """Pessoas do revezamento trabalhando em cada dia da semana no turno."""
-    return [sum(1 for p in grupo["pessoas"] if d in p["escala"]) for d in range(7)]
+    """Pessoas do revezamento trabalhando em cada dia da semana no turno (contando quem assumiu o turno como complemento)."""
+    cobertos = grupo.get("cobertos", [0] * 7)
+    return [sum(1 for p in grupo["pessoas"] if d in p["escala"]) + cobertos[d] for d in range(7)]
 
 
 def _frase_intervalo(grupo) -> str:
@@ -719,8 +859,18 @@ def frase_turno(grupo) -> str:
     por = f"{trabalhando[0]}" if min(trabalhando) == max(trabalhando) else f"de {min(trabalhando)} a {max(trabalhando)}"
     return (f"{n} pessoa{'s' if n > 1 else ''} em escala {settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA} "
             f"no turno da {nome_turno(ini)} ({fmt_hora(ini)}–{fmt_hora(fim)}{_frase_intervalo(grupo)}), "
-            f"{fmt_horas(horas_turno(ini, fim) * settings.DIAS_TRABALHO)} por semana cada, {por} trabalhando por dia"
+            f"{_frase_horas(grupo)}, {por} trabalhando por dia"
             f" (folgas em dias seguidos, em revezamento).")
+
+
+def _frase_horas(grupo) -> str:
+    """'42h por semana cada' ou '25h a 42h por semana', com o complemento (extensão ou turno quebrado), se houver."""
+    horas = [horas_pessoa(p) for p in grupo["pessoas"]]
+    texto = (f"{fmt_horas(horas[0])} por semana cada" if max(horas) - min(horas) < 1e-9
+             else f"{fmt_horas(min(horas))} a {fmt_horas(max(horas))} por semana")
+    if any(p.get("extras") for p in grupo["pessoas"]):
+        texto += " contando o complemento (extensão ou turno quebrado)"
+    return texto
 
 
 def total_revezamento(rev) -> int:
@@ -742,6 +892,15 @@ def imprimir_grade(grupo):
     for i, p in enumerate(grupo["pessoas"]):
         print(f"   {chr(65 + i):<7} " + "  ".join(f"{'F' if d in p['folgas'] else 'T':<3}" for d in range(7)))
     print("   Por dia " + "  ".join(f"{n:<3}" for n in por_dia(grupo)))
+    for i, p in enumerate(grupo["pessoas"]):
+        if p.get("extras"):
+            print(f"   {chr(65 + i)} completa com: {frase_extras(p)} ({fmt_horas(horas_pessoa(p))} por semana)")
+
+
+def frase_extras(pessoa) -> str:
+    """'Seg 12:00–18:00, Sáb 17:00–21:00'."""
+    return ", ".join(f"{settings.NOMES[d]} {fmt_hora(ini)}–{fmt_hora(fim)}"
+                     for d, pecas in sorted(pessoa["extras"].items()) for ini, fim in sorted(pecas))
 
 
 def imprimir_sugestoes(r):
