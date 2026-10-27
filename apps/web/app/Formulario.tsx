@@ -139,6 +139,13 @@ export default function Formulario({ linhas, onChange, rotulos = ROTULOS, comInt
           </tr>
         </thead>
         <tbody>
+          {linhas.length === 0 && (
+            <tr>
+              <td colSpan={4} className="muted" style={{ textAlign: "center", padding: "20px 8px" }}>
+                Nenhuma linha ainda. Clique em “+ Adicionar linha” para começar.
+              </td>
+            </tr>
+          )}
           {linhas.map((l) => (
             <tr key={l.id}>
               <td>

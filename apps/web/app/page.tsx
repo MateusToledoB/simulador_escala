@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { escalaTexto, lerEscala, semana } from "@/lib/escala";
+import { escalaTexto, lerEscala } from "@/lib/escala";
 import type { Dimensionamento as D, LinhaPEC, Resultado as R } from "@/lib/types";
 import Dimensionamento from "./Dimensionamento";
 import FormatoPEC from "./FormatoPEC";
@@ -10,22 +10,6 @@ import Resultado from "./Resultado";
 
 type Centro = { cr: string; linhas: LinhaPEC[] };
 type Modo = "quadro" | "demanda";
-
-const EXEMPLO_QUADRO: Linha[] = [
-  novaLinha({ cargo: "Auxiliar de limpeza", quantidade: 4,
-              escala: semana(0, 4, "07:30", "17:18", { inicio: "12:00", fim: "13:00" }) }),
-  novaLinha({ cargo: "Auxiliar de limpeza - 6x1", quantidade: 2,
-              escala: { tipo: "ciclo", trabalha: 6, entrada: "07:30", saida: "16:00", intervalo: null } }),
-  novaLinha({ cargo: "Líder de limpeza", quantidade: 1,
-              escala: { tipo: "semana", faixas: [
-                { de: 0, ate: 3, entrada: "08:00", saida: "19:00", intervalo: { inicio: "12:00", fim: "13:00" } },
-                { de: 4, ate: 4, entrada: "08:00", saida: "18:00", intervalo: { inicio: "12:00", fim: "13:00" } },
-              ] } }),
-];
-
-const EXEMPLO_DEMANDA: Linha[] = [
-  novaLinha({ cargo: "Limpeza", quantidade: 5, escala: semana(0, 6, "06:00", "22:00") }),
-];
 
 const MODOS = {
   quadro: {
@@ -56,7 +40,7 @@ async function lerErro(resp: Response) {
 
 export default function Home() {
   const [modo, setModo] = useState<Modo>("quadro");
-  const [linhas, setLinhas] = useState<Record<Modo, Linha[]>>({ quadro: EXEMPLO_QUADRO, demanda: EXEMPLO_DEMANDA });
+  const [linhas, setLinhas] = useState<Record<Modo, Linha[]>>({ quadro: [], demanda: [] });
   const [centros, setCentros] = useState<Centro[]>([]);
   const [resultado, setResultado] = useState<R | null>(null);
   const [dimensionamento, setDimensionamento] = useState<D | null>(null);
