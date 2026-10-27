@@ -277,13 +277,29 @@ def horas_semana(segs, pessoas) -> float:
     return max(sum(horas_legais(segs[d]) for d in dias) for dias in pessoas)
 
 
-def ajustar(equipe):
+ESTRATEGIAS = {  # formas de levar a escala à meta; cada uma vira uma opção no resultado
+    "intervalo": ("Aumentar o intervalo",
+                  f"Mantém entrada e saída e aumenta o intervalo até {fmt_horas(settings.INTERVALO_MAXIMO / 60)}; "
+                  f"se não bastar, corta até {settings.CORTE_MAXIMO} min do fim do turno."),
+    "saida": ("Manter o intervalo e sair mais cedo",
+              "Mantém a entrada e o intervalo de hoje e antecipa a saída até a semana caber na meta. "
+              "O horário que deixa de ser coberto vira contratação."),
+    "entrada": ("Manter o intervalo e entrar mais tarde",
+                "Mantém a saída e o intervalo de hoje e atrasa a entrada até a semana caber na meta. "
+                "O horário que deixa de ser coberto vira contratação."),
+}
+
+
+def ajustar(equipe, estrategia="intervalo"):
     """
-    Leva a equipe a LIMITE_HORAS_SEMANA horas em no máximo DIAS_TRABALHO dias, mantendo a entrada de cada dia.
+    Leva a equipe a LIMITE_HORAS_SEMANA horas em no máximo DIAS_TRABALHO dias.
     Escala com mais dias (6x1...) perdeu dias de trabalho: estende a saída, minuto a minuto, com o
-    intervalo mínimo, até a semana chegar à meta. Nas demais, mantendo entrada e saída:
-      1. aumenta o intervalo, minuto a minuto, até INTERVALO_MAXIMO (nunca abaixo do intervalo de hoje);
-      2. se não bastar, retira 30 min do fim do turno (até CORTE_MAXIMO) e volta ao passo 1.
+    intervalo mínimo, até a semana chegar à meta. Nas demais, conforme a estratégia (ESTRATEGIAS):
+      intervalo: mantendo entrada e saída,
+        1. aumenta o intervalo, minuto a minuto, até INTERVALO_MAXIMO (nunca abaixo do intervalo de hoje);
+        2. se não bastar, retira 30 min do fim do turno (até CORTE_MAXIMO) e volta ao passo 1;
+      saida:   mantém entrada e intervalo e retira 30 min do fim do turno até caber;
+      entrada: mantém saída e intervalo e atrasa a entrada 30 min até caber.
     Intervalo informado na escala mantém o início; se precisar crescer, termina mais tarde.
     Na escala dinâmica (horário diferente por dia), o mesmo ajuste vale para todos os dias, e a semana
     é a de quem mais trabalha. Fica com a primeira opção que não passa da meta, ou seja, a mais próxima dela.
@@ -303,15 +319,24 @@ def ajustar(equipe):
             segs, extensao = proximo, ext
         return segs, -extensao, True
     menor, segs = min(minimo.values()), equipe["antes"]
-    for corte in range(0, settings.CORTE_MAXIMO + 1, settings.SLOT):
-        for duracao in range(menor, max(menor, settings.INTERVALO_MAXIMO) + 1):
+    if estrategia == "intervalo":
+        opcoes = [(c, dur) for c in range(0, settings.CORTE_MAXIMO + 1, settings.SLOT)
+                  for dur in range(menor, max(menor, settings.INTERVALO_MAXIMO) + 1)]
+    else:
+        opcoes = [(c, menor) for c in range(0, min(fim - ini for ini, fim, _ in horarios.values()), settings.SLOT)]
+    corte = 0
+    for corte, duracao in opcoes:
+        if estrategia == "entrada":
+            proximo = {d: turno(ini + corte, fim, max(minimo[d], duracao), _inicio(pausa))
+                       for d, (ini, fim, pausa) in horarios.items()}
+        else:
             proximo = {d: turno(ini, fim - corte, max(minimo[d], duracao), _inicio(pausa))
                        for d, (ini, fim, pausa) in horarios.items()}
-            if None in proximo.values():  # o intervalo informado já não cabe no turno
-                continue
-            segs = proximo
-            if horas_semana(segs, pessoas) <= meta + 1e-9:
-                return segs, corte, True
+        if None in proximo.values():  # o intervalo informado já não cabe no turno
+            continue
+        segs = proximo
+        if horas_semana(segs, pessoas) <= meta + 1e-9:
+            return segs, corte, True
     return segs, corte, False
 
 
@@ -327,16 +352,17 @@ def faixas(e):
     return [(dias, list(antes), list(depois)) for (antes, depois), dias in grupos.items()]
 
 
-def calcular(equipes):
+def calcular(equipes, estrategia="intervalo"):
     """
-    Ajusta cada equipe e mede o rombo na semana-tipo: o que a equipe cobre hoje e deixa de cobrir
-    com a nova escala (intervalo não conta, a equipe continua no posto da entrada à saída).
+    Ajusta cada equipe (ajustar, com a estratégia) e mede o rombo na semana-tipo: o que a equipe cobre hoje
+    e deixa de cobrir com a nova escala (intervalo não conta, a equipe continua no posto da entrada à saída).
     """
     for e in equipes:
         e["antes"] = {d: turno(ini, fim, pausa[1] - pausa[0] if pausa else None, _inicio(pausa))
                       for d, (ini, fim, pausa) in e["horarios"].items()}
         e["pessoas"] = distribuir_folgas(e["dias"], e["quantidade"])
-        e["depois"], e["corte"], e["enquadrou"] = ajustar(e)
+        e["estrategia"] = estrategia
+        e["depois"], e["corte"], e["enquadrou"] = ajustar(e, estrategia)
         e["dias_antes"] = {d: e["quantidade"] for d in e["dias"]}
         e["dias_depois"] = Counter(d for dias in e["pessoas"] for d in dias)
 
@@ -361,6 +387,21 @@ def calcular(equipes):
     }
 
 
+def cenarios(equipes):
+    """
+    Um resultado de calcular por estratégia (ESTRATEGIAS), para comparar: {estrategia: resultado}.
+    Estratégia que dá a mesma escala de outra já calculada (ex.: só há 6x1) fica de fora.
+    """
+    resultados, vistos = {}, []
+    for estrategia in ESTRATEGIAS:
+        r = calcular([dict(e) for e in equipes], estrategia)
+        escalas = [e["depois"] for e in r["equipes"]]
+        if escalas not in vistos:
+            vistos.append(escalas)
+            resultados[estrategia] = r
+    return resultados
+
+
 # ---------------------------------------------------------------------------
 # SUGESTÕES DE CONTRATAÇÃO
 # ---------------------------------------------------------------------------
@@ -381,6 +422,60 @@ def turnos_iguais(blocos, limite):
         cortes = [min(fim, ini + k * passo) for k in range(n)] + [fim]
         turnos += [(a, b) for a, b in zip(cortes, cortes[1:]) if b > a]
     return turnos
+
+
+def _pausa(duracao):
+    """Intervalo da CLT (art. 71) de um turno com 'duracao' minutos no posto, como em turno()."""
+    return 60 if duracao > 360 else 15 if duracao > 240 else 0
+
+
+def _espalhar(ini, fim, n, duracao):
+    """n turnos de 'duracao' minutos de ini a fim: o primeiro entra em ini, o último sai em fim, os demais entre eles."""
+    passo = (fim - ini - duracao) / (n - 1)
+    inicios = [ini + round(k * passo / settings.SLOT) * settings.SLOT for k in range(n - 1)] + [fim - duracao]
+    return [(s, s + duracao) for s in inicios]
+
+
+def turnos_com_intervalo(blocos, limite):
+    """
+    Blocos de demanda como turnos que contam o intervalo (CLT). O bloco que cabe em 'limite' horas trabalhadas
+    vira um turno só, com o intervalo no meio (o posto descoberto no intervalo sobra para horistas). O que passa
+    é dividido no menor número de turnos, e cada turno fica no posto 'limite' horas trabalhadas mais o intervalo,
+    para aproveitar a semana inteira de cada pessoa (LIMITE_HORAS_SEMANA): os turnos se sobrepõem, e um cobre o
+    intervalo do outro. Devolve ([(entrada, saída)], {(entrada no dia, duração): minutos da entrada ao início
+    do intervalo}).
+    """
+    turnos, pausas = [], {}
+    for ini, fim in blocos:
+        if horas_turno(ini, fim) <= limite + 1e-9:
+            turnos.append((ini, fim))
+            continue
+        n = 2
+        while True:  # menor número de turnos que cobre o bloco
+            trabalho = -(-(fim - ini) // (n * settings.SLOT)) * settings.SLOT
+            duracao = next(trabalho + p for p in (60, 15, 0) if _pausa(trabalho + p) == p)
+            bloco = _espalhar(ini, fim, n, duracao)
+            if all(horas_turno(*t) <= limite + 1e-9 for t in bloco):
+                break
+            n += 1
+        for maior in range(min(fim - ini, round(limite * 60) + 60), duracao, -1):  # o mais longo que cabe na meta
+            candidato = _espalhar(ini, fim, n, maior)
+            if all(horas_turno(*t) <= limite + 1e-9 for t in candidato):
+                duracao, bloco = maior, candidato
+                break
+        p, intervalos = _pausa(duracao), {}
+        for s, e in bloco:  # intervalo onde outro turno está no posto e trabalhando, o mais perto do meio
+            if not p:
+                continue
+            meio = (s + (duracao - p) // 2) // 15 * 15  # intervalos começam em hora cheia, :15, :30 ou :45
+            livres = [b for b in range(-(-(s + settings.SLOT) // 15) * 15, e - p - settings.SLOT + 1, 15)
+                      if any(o != (s, e) and o[0] <= b and b + p <= o[1] for o in bloco)
+                      and not any(b < q + p and q < b + p for q in intervalos.values())]
+            intervalos[s, e] = min(livres, key=lambda b: abs(b - meio), default=meio)
+        for (s, e), b in intervalos.items():
+            pausas.setdefault((s % 1440, e - s), b - s)
+        turnos += bloco
+    return turnos, pausas
 
 
 def turnos_do_rombo(blocos):
@@ -440,32 +535,47 @@ def revezar(turnos):
     return grupos, sobra
 
 
-def horistas(blocos):
-    return alocar(turnos_do_rombo(blocos), settings.DIAS_MAXIMOS_HORISTA, settings.LIMITE_HORAS_SEMANA)
+def horistas(blocos, com_intervalo=False):
+    turnos = turnos_do_rombo(blocos)
+    if com_intervalo:  # o posto fica descoberto no intervalo de cada horista: vira um turno para outro horista
+        turnos += [(segs[0][1], segs[1][0]) for segs in (turno(*t) for t in turnos)
+                   if len(segs) > 1 and segs[1][0] - segs[0][1] >= settings.SLOT]
+    return alocar(turnos, settings.DIAS_MAXIMOS_HORISTA, settings.LIMITE_HORAS_SEMANA)
 
 
-def sugerir(blocos):
+def sugerir(blocos, com_intervalo=False):
     """
     Duas formas de cobrir os blocos (rombo ou demanda):
       revezamento: equipes 5x2 por turno (revezar), com turnos iguais de até LIMITE_HORAS_SEMANA / DIAS_TRABALHO
                    horas, e horistas para o que as equipes deixam descoberto;
       horista:     só horistas.
+    com_intervalo (dimensionamento): o posto precisa de alguém também no intervalo; os turnos do revezamento
+    se sobrepõem para cobri-lo (turnos_com_intervalo), e o intervalo que fica descoberto sobra para horistas.
     """
-    grupos, _ = revezar(turnos_iguais(blocos, settings.LIMITE_HORAS_SEMANA / settings.DIAS_TRABALHO))
+    limite = settings.LIMITE_HORAS_SEMANA / settings.DIAS_TRABALHO
+    turnos, pausas = turnos_com_intervalo(blocos, limite) if com_intervalo else (turnos_iguais(blocos, limite), {})
+    grupos, _ = revezar(turnos)
     linha = Linha()
     falta = [0] * linha.n
     for ini, fim in blocos:
         for s in linha.slots(0, [(ini, fim)]):
             falta[s] += 1
     for g in grupos:
+        ini, fim = g["turno"]
+        inicio = pausas.get((ini % 1440, fim - ini))
+        if com_intervalo and len(turno(ini, fim)) > 1:
+            segs = turno(ini, fim, None, None if inicio is None else ini + inicio)
+            g["intervalo"] = (segs[0][1], segs[1][0])
         for p in g["pessoas"]:
             for ini, fim in p["escala"].values():
-                for s in linha.slots(0, [(ini, fim)]):
-                    falta[s] -= 1
+                segs = turno(ini, fim, None, None if inicio is None else ini + inicio) if com_intervalo else [(ini, fim)]
+                for seg in segs:
+                    for s in linha.slots(0, [seg]):
+                        falta[s] -= 1
     resto = blocos_de_falta([max(0, f) for f in falta])
     return {
-        "revezamento": {"turnos": grupos, "horistas": horistas(resto)},
-        "horista": horistas(blocos),
+        "revezamento": {"turnos": grupos, "horistas": horistas(resto, com_intervalo)},
+        "horista": horistas(blocos, com_intervalo),
     }
 
 
@@ -597,6 +707,10 @@ def por_dia(grupo):
     return [sum(1 for p in grupo["pessoas"] if d in p["escala"]) for d in range(7)]
 
 
+def _frase_intervalo(grupo) -> str:
+    return f", intervalo {fmt_hora(grupo['intervalo'][0])}–{fmt_hora(grupo['intervalo'][1])}" if "intervalo" in grupo else ""
+
+
 def frase_turno(grupo) -> str:
     """'7 pessoas em escala 5x2 no turno da manhã (06:00–14:00), 35h por semana cada, 5 trabalhando por dia.'"""
     ini, fim = grupo["turno"]
@@ -604,7 +718,7 @@ def frase_turno(grupo) -> str:
     trabalhando = [d for d in dias if d]
     por = f"{trabalhando[0]}" if min(trabalhando) == max(trabalhando) else f"de {min(trabalhando)} a {max(trabalhando)}"
     return (f"{n} pessoa{'s' if n > 1 else ''} em escala {settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA} "
-            f"no turno da {nome_turno(ini)} ({fmt_hora(ini)}–{fmt_hora(fim)}), "
+            f"no turno da {nome_turno(ini)} ({fmt_hora(ini)}–{fmt_hora(fim)}{_frase_intervalo(grupo)}), "
             f"{fmt_horas(horas_turno(ini, fim) * settings.DIAS_TRABALHO)} por semana cada, {por} trabalhando por dia"
             f" (folgas em dias seguidos, em revezamento).")
 

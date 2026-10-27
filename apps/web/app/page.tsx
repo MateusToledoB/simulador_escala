@@ -38,7 +38,8 @@ const MODOS = {
   demanda: {
     rotulo: "Dimensionar por demanda",
     descricao: "Informe quantos postos precisam estar ocupados, em quais dias e horário (ex.: 5 postos de segunda a " +
-               "domingo, das 06h às 22h). O simulador monta as equipes 5x2 por turno, com folgas em escadinha.",
+               "domingo, das 06h às 22h). O simulador monta as equipes 5x2 por turno, com folgas em escadinha, " +
+               "aproveitando as 42h de cada pessoa e cobrindo o posto também no intervalo.",
     rotulos: { cargo: "Posto", quantidade: "Postos", exemplo: "Ex.: Limpeza" },
     rota: "/api/dimensionar",
   },

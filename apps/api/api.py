@@ -16,7 +16,7 @@ from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel, Field
 
 from core.settings import settings
-from main import (calcular, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
+from main import (ESTRATEGIAS, cenarios, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
                   frases_horistas, horas_legais, horas_semana, horas_turno, intervalo, janela, ler_escala, ler_linhas, meta_semana,
                   montar_equipes, nome_turno, por_dia, sugerir, total_revezamento)
 
@@ -53,6 +53,21 @@ def _turno_json(segs):
     }
 
 
+def _ajuste(e):
+    """O que mudou no turno: 'intervalo +24 min', 'saída 30 min mais cedo'... (vazio = nada)."""
+    partes = []
+    mais_intervalo = max(intervalo(e["depois"][d]) - intervalo(e["antes"][d]) for d in e["dias"])
+    if mais_intervalo > 0:
+        partes.append(f"intervalo +{fmt_horas(mais_intervalo / 60)}")
+    if e["corte"] < 0:
+        partes.append(f"saída {fmt_horas(-e['corte'] / 60)} mais tarde")
+    elif e["corte"] > 0:
+        quando = "entrada" if e["estrategia"] == "entrada" else "saída"
+        sentido = "mais tarde" if e["estrategia"] == "entrada" else "mais cedo"
+        partes.append(f"{quando} {fmt_horas(e['corte'] / 60)} {sentido}")
+    return ", ".join(partes)
+
+
 def _cargo_json(e):
     dias = len(e["pessoas"][0])
     return {
@@ -65,6 +80,7 @@ def _cargo_json(e):
         "semana_antes": fmt_horas(horas_semana(e["antes"], [e["dias"]])),
         "semana_depois": fmt_horas(horas_semana(e["depois"], e["pessoas"])),
         "corte_min": e["corte"],
+        "ajuste": _ajuste(e),
         "enquadrou": e["enquadrou"],
         "meta": fmt_horas(meta_semana(dias)),
         "rodizio": [{"quantidade": qtd, "dias": fmt_dias(list(d))}
@@ -99,6 +115,8 @@ def _revezamento_json(rev):
             "titulo": f"Turno da {nome_turno(g['turno'][0])}",
             "entrada": fmt_hora(g["turno"][0]),
             "saida": fmt_hora(g["turno"][1]),
+            "intervalo": f"{fmt_hora(g['intervalo'][0])}–{fmt_hora(g['intervalo'][1])}" if "intervalo" in g else None,
+            "horas_dia": fmt_horas(horas_turno(*g["turno"])),
             "horas_semana": fmt_horas(horas_turno(*g["turno"]) * settings.DIAS_TRABALHO),
             "por_dia": por_dia(g),
             "demanda": g["falta"],
@@ -123,12 +141,13 @@ def _sugestoes_json(r):
     return {"revezamento": _revezamento_json(r["revezamento"]), "horista": _horistas_json(r["horista"])}
 
 
-def resultado_json(r, sem_horario):
+def _opcao_json(estrategia, r):
+    titulo, descricao = ESTRATEGIAS[estrategia]
     return {
-        "config": _config_json(),
-        "total_pessoas": sum(e["quantidade"] for e in r["equipes"]) + sum(s[3] for s in sem_horario),
+        "id": estrategia,
+        "titulo": titulo,
+        "descricao": descricao,
         "cargos": [_cargo_json(e) for e in r["equipes"]],
-        "sem_horario": [{"cargo": c, "escala": esc, "quantidade": qtd} for _, c, esc, qtd in sem_horario],
         "rombo": {
             "blocos": [{"inicio": fmt_min(ini), "fim": fmt_min(fim), "duracao": fmt_horas((fim - ini) / 60),
                         "pessoas": qtd} for (ini, fim), qtd in sorted(Counter(r["blocos"]).items())],
@@ -143,6 +162,16 @@ def resultado_json(r, sem_horario):
     }
 
 
+def resultado_json(opcoes, equipes, sem_horario):
+    """opcoes = {estrategia: resultado de calcular} (main.cenarios)."""
+    return {
+        "config": _config_json(),
+        "total_pessoas": sum(e["quantidade"] for e in equipes) + sum(s[3] for s in sem_horario),
+        "sem_horario": [{"cargo": c, "escala": esc, "quantidade": qtd} for _, c, esc, qtd in sem_horario],
+        "opcoes": [_opcao_json(estrategia, r) for estrategia, r in opcoes.items()],
+    }
+
+
 # ---------------------------------------------------------------------------
 # ROTAS
 # ---------------------------------------------------------------------------
@@ -154,7 +183,7 @@ def health():
 @app.post("/simular")
 def simular(simulacao: Simulacao):
     equipes, sem_horario = montar_equipes([l.model_dump() for l in simulacao.linhas])
-    return resultado_json(calcular(equipes), sem_horario)
+    return resultado_json(cenarios(equipes), equipes, sem_horario)
 
 
 @app.post("/dimensionar")
@@ -178,7 +207,7 @@ def dimensionar(simulacao: Simulacao):
         "sem_horario": sem_horario,
         "horas_posto_semana": fmt_horas(horas),
         "colaboradores_equivalentes": round(horas / settings.LIMITE_HORAS_SEMANA, 1),
-        "sugestoes": _sugestoes_json(sugerir(sorted(blocos))) if blocos else None,
+        "sugestoes": _sugestoes_json(sugerir(sorted(blocos), com_intervalo=True)) if blocos else None,
     }
 
 

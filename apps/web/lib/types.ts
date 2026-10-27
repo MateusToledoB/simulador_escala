@@ -21,6 +21,7 @@ export type Cargo = {
   semana_antes: string;
   semana_depois: string;
   corte_min: number;
+  ajuste: string;
   enquadrou: boolean;
   meta: string;
   rodizio: { quantidade: number; dias: string }[];
@@ -41,6 +42,8 @@ export type TurnoRevezamento = {
   titulo: string;
   entrada: string;
   saida: string;
+  intervalo: string | null;
+  horas_dia: string;
   horas_semana: string;
   por_dia: number[];
   demanda: number[];
@@ -65,11 +68,12 @@ export type Config = {
   dias: string[];
 };
 
-export type Resultado = {
-  config: Config;
-  total_pessoas: number;
+// Uma forma de levar a escala à meta (main.ESTRATEGIAS), com o rombo e as sugestões que ela gera
+export type Opcao = {
+  id: string;
+  titulo: string;
+  descricao: string;
   cargos: Cargo[];
-  sem_horario: LinhaPEC[];
   rombo: {
     blocos: { inicio: string; fim: string; duracao: string; pessoas: number }[];
     por_dia: { dia: string; horas: string; valor: number }[];
@@ -79,6 +83,13 @@ export type Resultado = {
     colaboradores_equivalentes: number;
   };
   sugestoes: Sugestoes | null;
+};
+
+export type Resultado = {
+  config: Config;
+  total_pessoas: number;
+  sem_horario: LinhaPEC[];
+  opcoes: Opcao[];
 };
 
 // Formato da resposta de POST /dimensionar

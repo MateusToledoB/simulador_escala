@@ -169,3 +169,8 @@ body { padding-bottom: 32px; }
   color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center;
 }
 .intervalo { display: inline-flex; gap: 6px; align-items: center; padding: 2px 4px 2px 8px; border-radius: 8px; background: var(--subtle); border: 1px solid var(--border); }
+
+/* Comparação de opções */
+tr.clicavel { cursor: pointer; }
+tr.clicavel:hover td { background: var(--subtle); }
+tr.selecionada td, tr.selecionada:hover td { background: var(--primary-soft); }

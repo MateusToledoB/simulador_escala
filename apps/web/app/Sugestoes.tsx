@@ -14,8 +14,11 @@ function GradeTurno({ t, dias }: { t: TurnoRevezamento; dias: string[] }) {
   return (
     <div className="grade">
       <div className="grade-topo">
-        <h3 className="grade-titulo">{t.titulo} — {t.entrada} às {t.saida}</h3>
-        <span className="muted">{porDia(t)} · {t.horas_semana} por semana cada</span>
+        <h3 className="grade-titulo">
+          {t.titulo} — {t.entrada} às {t.saida}
+          {t.intervalo && <span className="muted" style={{ fontWeight: 400 }}> · intervalo {t.intervalo}</span>}
+        </h3>
+        <span className="muted">{porDia(t)} · {t.horas_dia} por dia, {t.horas_semana} por semana cada</span>
       </div>
       <div className="tabela-wrap">
         <table className="grade-tabela">
