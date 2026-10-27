@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { escalaTexto, lerEscala } from "@/lib/escala";
+import { escalaTexto, lerEscala, semana } from "@/lib/escala";
 import type { Dimensionamento as D, LinhaPEC, Resultado as R } from "@/lib/types";
 import Dimensionamento from "./Dimensionamento";
 import FormatoPEC from "./FormatoPEC";
@@ -15,12 +15,13 @@ const EXEMPLO_QUADRO: Linha[] = [
   novaLinha({ cargo: "Auxiliar de limpeza", quantidade: 4 }),
   novaLinha({ cargo: "Auxiliar de limpeza - 6x1", quantidade: 2,
               escala: { tipo: "ciclo", trabalha: 6, entrada: "07:30", saida: "16:00" } }),
-  novaLinha({ cargo: "Líder de limpeza", quantidade: 1,
-              escala: { tipo: "semana", de: 0, ate: 4, entrada: "08:00", saida: "17:48" } }),
+  novaLinha({ cargo: "Líder de limpeza", quantidade: 1, intervalo: 60,
+              escala: { tipo: "semana", faixas: [{ de: 0, ate: 3, entrada: "08:00", saida: "19:00" },
+                                                 { de: 4, ate: 4, entrada: "08:00", saida: "18:00" }] } }),
 ];
 
 const EXEMPLO_DEMANDA: Linha[] = [
-  novaLinha({ cargo: "Limpeza", quantidade: 5, escala: { tipo: "semana", de: 0, ate: 6, entrada: "06:00", saida: "22:00" } }),
+  novaLinha({ cargo: "Limpeza", quantidade: 5, escala: semana(0, 6, "06:00", "22:00") }),
 ];
 
 const MODOS = {
@@ -71,7 +72,8 @@ export default function Home() {
   const usarCentro = (c: Centro) => {
     setLinhas((l) => ({
       ...l,
-      quadro: c.linhas.map((x) => novaLinha({ cargo: x.cargo, quantidade: x.quantidade, escala: lerEscala(x.escala) })),
+      quadro: c.linhas.map((x) => novaLinha({ cargo: x.cargo, quantidade: x.quantidade, intervalo: x.intervalo ?? null,
+                                               escala: lerEscala(x.escala) })),
     }));
     setResultado(null);
   };
@@ -94,7 +96,12 @@ export default function Home() {
     if (atuais.some((l) => !l.cargo.trim())) return setErro(`Preencha o campo ${config.rotulos.cargo} de todas as linhas.`);
     setCarregando(true);
     const corpo = {
-      linhas: atuais.map((l) => ({ cargo: l.cargo.trim(), escala: escalaTexto(l.escala), quantidade: l.quantidade })),
+      linhas: atuais.map((l) => ({
+        cargo: l.cargo.trim(),
+        escala: escalaTexto(l.escala),
+        quantidade: l.quantidade,
+        ...(modo === "quadro" && l.intervalo !== null ? { intervalo: l.intervalo } : {}),
+      })),
     };
     const resp = await fetch(config.rota, {
       method: "POST",
@@ -155,7 +162,7 @@ export default function Home() {
           <button onClick={limpar}>Limpar</button>
         </div>
 
-        <Formulario linhas={atuais} onChange={setAtuais} rotulos={config.rotulos} />
+        <Formulario linhas={atuais} onChange={setAtuais} rotulos={config.rotulos} comIntervalo={modo === "quadro"} />
 
         <div className="row" style={{ marginTop: 16 }}>
           <button onClick={() => setAtuais([...atuais, novaLinha()])}>+ Adicionar linha</button>

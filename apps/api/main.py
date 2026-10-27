@@ -22,10 +22,11 @@ def _coluna(df, nome, obrigatoria=True):
 
 
 DIAS = {"SEG": 0, "TER": 1, "QUA": 2, "QUI": 3, "SEX": 4, "SAB": 5, "DOM": 6}
-_DIA = r"(SEG|TER|QUA|QUI|SEX|SAB|DOM)\w*"
+_DIA = r"\b(SEG|TER|QUA|QUI|SEX|SAB|DOM)\w*"
 _HORARIO = r"\(\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*\)"
-RE_ESCALA = re.compile(rf"{_DIA}\s*-\s*{_DIA}\s*{_HORARIO}")
+RE_FAIXA = re.compile(rf"{_DIA}(?:\s*(?:-|\bA\b)\s*{_DIA})?\s*{_HORARIO}")  # 'SEGUNDA - QUINTA (08:00 - 19:00)', 'SEXTA (...)'
 RE_CICLO = re.compile(rf"\b(\d)\s*X\s*(\d)\b\s*{_HORARIO}")  # 'ESCALA 6 X 1 (07:30 - 16:00)'
+RE_INTERVALO = re.compile(r"^(\d{1,2})\s*(?::|H)\s*(\d{0,2})\s*(?:MIN)?$")  # '1:00', '1h', '1h30', '0:45'
 
 
 def _min(h, m) -> int:
@@ -34,26 +35,42 @@ def _min(h, m) -> int:
 
 def ler_escala(texto):
     """
-    'ESCALA SEGUNDA - SEXTA (16:30 - 02:30)' -> ([0, 1, 2, 3, 4], 990, 1590), ou None se não houver horário.
-    'ESCALA 6 X 1 (07:30 - 16:00)' -> 6 dias trabalhados, contados como dias corridos a partir de segunda.
+    Texto da escala -> {dia: (entrada, saída)} em minutos, na ordem dos dias, ou None se não houver horário.
+      'ESCALA SEGUNDA - SEXTA (16:30 - 02:30)'                          -> Seg a Sex, 990 a 1590
+      'ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)' -> horário diferente por dia (dinâmica)
+      'ESCALA 6 X 1 (07:30 - 16:00)' -> 6 dias trabalhados, contados como dias corridos a partir de segunda.
     A saída passa de 1440 quando o turno vira a noite; o turno pertence ao dia em que começa.
     """
     if not isinstance(texto, str):
         return None
     t = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().upper()
-    if m := RE_ESCALA.search(t):
-        de, ate = DIAS[m.group(1)], DIAS[m.group(2)]
-        dias = [(de + i) % 7 for i in range((ate - de) % 7 + 1)]
-        h = m.groups()[2:]
-    elif (m := RE_CICLO.search(t)) and int(m.group(1)) + int(m.group(2)) == 7:  # 6x1, 5x2
-        dias = list(range(int(m.group(1))))
-        h = m.groups()[2:]
-    else:
+
+    def horario(h):
+        ini, fim = _min(h[0], h[1]), _min(h[2], h[3])
+        return ini, fim + 1440 if fim <= ini else fim
+
+    horarios = {}
+    for m in RE_FAIXA.finditer(t):
+        de, ate = DIAS[m.group(1)], DIAS[m.group(2) or m.group(1)]
+        for i in range((ate - de) % 7 + 1):
+            horarios[(de + i) % 7] = horario(m.groups()[2:])
+    if not horarios and (m := RE_CICLO.search(t)) and int(m.group(1)) + int(m.group(2)) == 7:  # 6x1, 5x2
+        horarios = {d: horario(m.groups()[2:]) for d in range(int(m.group(1)))}
+    return horarios or None
+
+
+def ler_intervalo(valor):
+    """Intervalo informado -> minutos: 60, '60', '1:00', '1h', '1h30'. Vazio -> None (usa o mínimo da CLT)."""
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)) or str(valor).strip() == "":
         return None
-    ini, fim = _min(h[0], h[1]), _min(h[2], h[3])
-    if fim <= ini:
-        fim += 1440
-    return dias, ini, fim
+    t = str(valor).strip().upper().replace(" ", "")
+    try:
+        return int(float(t.removesuffix("MIN")))
+    except ValueError:
+        pass
+    if m := RE_INTERVALO.match(t):
+        return int(m.group(1)) * 60 + int(m.group(2) or 0)
+    raise ValueError(f"Intervalo inválido: {valor!r} (use minutos, ex. 60, ou 1:00)")
 
 
 def carregar_centros(arquivo=settings.ARQUIVO, centros=settings.CENTROS_RESULTADO):
@@ -67,14 +84,15 @@ SEM_CR, SEM_EQUIPE = "Quadro", "Equipe"  # quando a PEC não tem SL_CR / SL_DESC
 def ler_linhas(arquivo=settings.ARQUIVO):
     """
     Lê a PEC e devolve as linhas por CR: {cr: [{"equipe", "cargo", "escala", "quantidade"}]}, na ordem da planilha.
-    Obrigatórias: QF_CARGO, Escala e Quantidade. SL_CR (agrupa por CR) e SL_DESC (equipe) são opcionais:
-    sem elas, tudo fica num CR SEM_CR e numa equipe SEM_EQUIPE. Linhas sem cargo ou sem quantidade são ignoradas.
-    Equipe e cargo saem sem o código numérico do início.
+    Obrigatórias: QF_CARGO, Escala e Quantidade. Opcionais: Intervalo (minutos ou HH:MM; vazio = mínimo da CLT),
+    SL_CR (agrupa por CR) e SL_DESC (equipe); sem elas, tudo fica num CR SEM_CR e numa equipe SEM_EQUIPE.
+    Linhas sem cargo ou sem quantidade são ignoradas. Equipe e cargo saem sem o código numérico do início.
     """
     df = pd.read_excel(arquivo, dtype=str)
     c_cargo = _coluna(df, "QF_CARGO")
     c_escala = _coluna(df, "Escala")
     c_qtd = _coluna(df, "Quantidade")
+    c_intervalo = _coluna(df, "Intervalo", obrigatoria=False)
     c_cr = _coluna(df, "SL_CR", obrigatoria=False)
     c_equipe = _coluna(df, "SL_DESC", obrigatoria=False)
 
@@ -88,24 +106,24 @@ def ler_linhas(arquivo=settings.ARQUIVO):
             "cargo": sem_codigo(texto(row, c_cargo)),
             "escala": row[c_escala],
             "quantidade": int(float(row[c_qtd])),
+            "intervalo": ler_intervalo(row[c_intervalo]) if c_intervalo else None,
         })
     return dict(por_cr)
 
 
 def montar_equipes(linhas):
     """
-    Linhas {"equipe", "cargo", "escala", "quantidade"} (da PEC ou do site) -> ([{... "dias", "ini", "fim"}],
-    [(equipe, cargo, escala, quantidade) sem horário]).
+    Linhas {"equipe", "cargo", "escala", "quantidade", "intervalo"} (da PEC ou do site) ->
+    ([{... "horarios": {dia: (ini, fim)}, "dias"}], [(equipe, cargo, escala, quantidade) sem horário]).
     Cada linha tem 'quantidade' pessoas do mesmo cargo na mesma escala, dentro de uma equipe.
     """
     equipes, sem_horario = [], []
     for linha in linhas:
-        escala = ler_escala(linha["escala"])
-        if not escala:
+        horarios = ler_escala(linha["escala"])
+        if not horarios:
             sem_horario.append((linha.get("equipe", ""), linha["cargo"], linha["escala"], linha["quantidade"]))
             continue
-        dias, ini, fim = escala
-        equipes.append({**linha, "dias": dias, "ini": ini, "fim": fim})
+        equipes.append({**linha, "intervalo": linha.get("intervalo"), "horarios": horarios, "dias": list(horarios)})
     return equipes, sem_horario
 
 
@@ -205,11 +223,11 @@ class Linha:
 
 
 def cobertura(linha, equipes, chave):
-    """Nº de pessoas por slot, com o turno de cada equipe em equipe[chave] e as pessoas por dia em equipe['dias_' + chave]."""
+    """Nº de pessoas por slot, com o turno de cada dia em equipe[chave][dia] e as pessoas por dia em equipe['dias_' + chave]."""
     cob = [0] * linha.n
     for e in equipes:
         for d, qtd in e["dias_" + chave].items():
-            for s in linha.slots(d, e[chave]):
+            for s in linha.slots(d, e[chave][d]):
                 cob[s] += qtd
     return cob
 
@@ -256,34 +274,50 @@ def distribuir_folgas(dias, quantidade):
     return pessoas
 
 
+def horas_semana(segs, pessoas) -> float:
+    """Horas na semana de quem mais trabalha: segs = {dia: turno}, pessoas = dias trabalhados de cada pessoa."""
+    return max(sum(horas_legais(segs[d]) for d in dias) for dias in pessoas)
+
+
 def ajustar(equipe):
     """
-    Leva a equipe a LIMITE_HORAS_SEMANA horas em no máximo DIAS_TRABALHO dias, mantendo a entrada.
+    Leva a equipe a LIMITE_HORAS_SEMANA horas em no máximo DIAS_TRABALHO dias, mantendo a entrada de cada dia.
     Escala com mais dias (6x1...) perdeu dias de trabalho: estende a saída, minuto a minuto, com o
     intervalo mínimo, até a semana chegar à meta. Nas demais, mantendo entrada e saída:
-      1. aumenta o intervalo, minuto a minuto, até INTERVALO_MAXIMO;
+      1. aumenta o intervalo, minuto a minuto, até INTERVALO_MAXIMO (nunca abaixo do intervalo de hoje);
       2. se não bastar, retira 30 min do fim do turno (até CORTE_MAXIMO) e volta ao passo 1.
-    Fica com a primeira opção que não passa da meta, ou seja, a mais próxima dela.
-    Retorna (segs, corte em minutos (negativo = extensão), enquadrou?).
+    Na escala dinâmica (horário diferente por dia), o mesmo ajuste vale para todos os dias, e a semana
+    é a de quem mais trabalha. Fica com a primeira opção que não passa da meta, ou seja, a mais próxima dela.
+    Retorna ({dia: segs}, corte em minutos (negativo = extensão), enquadrou?).
     """
     dias = min(len(equipe["dias"]), settings.DIAS_TRABALHO)
     meta = meta_semana(dias)
-    minimo = intervalo(equipe["antes"])
-    if len(equipe["dias"]) > dias and horas_legais(equipe["antes"]) * dias < meta:
-        ini, segs = equipe["ini"], equipe["antes"]
-        for fim in range(equipe["fim"], ini + 1440):
-            proximo = turno(ini, fim, max(minimo, intervalo(turno(ini, fim))))
-            if horas_legais(proximo) * dias > meta + 1e-9:
+    horarios, pessoas = equipe["horarios"], equipe["pessoas"]
+    minimo = {d: intervalo(s) for d, s in equipe["antes"].items()}
+    if len(equipe["dias"]) > dias and horas_semana(equipe["antes"], pessoas) < meta:
+        segs, extensao = equipe["antes"], 0
+        for ext in range(0, 1440 - max(fim - ini for ini, fim in horarios.values())):
+            proximo = {d: turno(ini, fim + ext, max(minimo[d], intervalo(turno(ini, fim + ext))))
+                       for d, (ini, fim) in horarios.items()}
+            if horas_semana(proximo, pessoas) > meta + 1e-9:
                 break
-            segs = proximo
-        return segs, equipe["fim"] - janela(segs)[1], True
+            segs, extensao = proximo, ext
+        return segs, -extensao, True
+    menor = min(minimo.values())
     for corte in range(0, settings.CORTE_MAXIMO + 1, settings.SLOT):
-        fim = equipe["fim"] - corte
-        for duracao in range(minimo, max(minimo, settings.INTERVALO_MAXIMO) + 1):
-            segs = turno(equipe["ini"], fim, duracao)
-            if horas_legais(segs) * dias <= meta + 1e-9:
+        for duracao in range(menor, max(menor, settings.INTERVALO_MAXIMO) + 1):
+            segs = {d: turno(ini, fim - corte, max(minimo[d], duracao)) for d, (ini, fim) in horarios.items()}
+            if horas_semana(segs, pessoas) <= meta + 1e-9:
                 return segs, corte, True
     return segs, corte, False
+
+
+def faixas(e):
+    """Dias agrupados pelo mesmo turno antes e depois: [(dias, segs antes, segs depois)] (um só na escala fixa)."""
+    grupos = {}
+    for d in e["dias"]:
+        grupos.setdefault((tuple(e["antes"][d]), tuple(e["depois"][d])), []).append(d)
+    return [(dias, list(antes), list(depois)) for (antes, depois), dias in grupos.items()]
 
 
 def calcular(equipes):
@@ -292,9 +326,9 @@ def calcular(equipes):
     com a nova escala (intervalo não conta, a equipe continua no posto da entrada à saída).
     """
     for e in equipes:
-        e["antes"] = turno(e["ini"], e["fim"])
-        e["depois"], e["corte"], e["enquadrou"] = ajustar(e)
+        e["antes"] = {d: turno(ini, fim, e.get("intervalo")) for d, (ini, fim) in e["horarios"].items()}
         e["pessoas"] = distribuir_folgas(e["dias"], e["quantidade"])
+        e["depois"], e["corte"], e["enquadrou"] = ajustar(e)
         e["dias_antes"] = {d: e["quantidade"] for d in e["dias"]}
         e["dias_depois"] = Counter(d for dias in e["pessoas"] for d in dias)
 
@@ -655,14 +689,16 @@ def imprimir_cargo(e):
     else:
         corte = "corte no fim do turno: nenhum"
     print(f"\n{e['cargo']} ({e['quantidade']} pessoa(s))")
-    print(f"  {e['escala']}")
-    print(f"  {fmt_dias(e['dias'])}  {desc_turno(antes):<28} ->  {desc_turno(depois)}")
+    print(f"  {e['escala']}" + ("" if e.get("intervalo") is None
+                                else f"  (intervalo informado: {fmt_horas(e['intervalo'] / 60)})"))
+    for dias_faixa, antes_faixa, depois_faixa in faixas(e):
+        print(f"  {fmt_dias(dias_faixa)}  {desc_turno(antes_faixa):<28} ->  {desc_turno(depois_faixa)}")
     if dias < len(e["dias"]):
         print(f"  {len(e['dias'])}x{7 - len(e['dias'])} -> {dias}x{7 - dias}: "
               + "; ".join(f"{qtd} pessoa(s) {fmt_dias(list(d))}"
                           for d, qtd in Counter(map(tuple, e["pessoas"])).items()))
-    print(f"  semana: {fmt_horas(horas_legais(antes) * len(e['dias']))} -> "
-          f"{fmt_horas(horas_legais(depois) * dias)}  | {corte}"
+    print(f"  semana: {fmt_horas(horas_semana(antes, [e['dias']]))} -> "
+          f"{fmt_horas(horas_semana(depois, e['pessoas']))}  | {corte}"
           + ("" if e["enquadrou"] else f"  (NÃO enquadrou em {fmt_horas(meta_semana(dias))})"))
 
 

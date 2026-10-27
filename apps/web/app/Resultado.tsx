@@ -37,7 +37,11 @@ export default function Resultado({ r }: { r: R }) {
             <tbody>
                   {r.cargos.map((c, i) => (
                     <tr key={i}>
-                      <td>{c.cargo}<div className="preview">{c.escala}</div></td>
+                      <td>
+                        {c.cargo}
+                        <div className="preview">{c.escala}</div>
+                        {c.intervalo_informado && <div className="muted" style={{ fontSize: 12 }}>intervalo informado: {c.intervalo_informado}</div>}
+                      </td>
                       <td className="num">{c.quantidade}</td>
                       <td>
                         {c.dias}
@@ -47,8 +51,17 @@ export default function Resultado({ r }: { r: R }) {
                           </div>
                         )}
                       </td>
-                      <td className="mono">{c.antes.entrada}–{c.antes.saida}<div className="muted">int {c.antes.intervalo} · {c.antes.horas}</div></td>
-                      <td className="mono">{c.depois.entrada}–{c.depois.saida}<div className="muted">int {c.depois.intervalo} · {c.depois.horas}</div></td>
+                      {(["antes", "depois"] as const).map((quando) => (
+                        <td key={quando} className="mono">
+                          {c.faixas.map((f) => (
+                            <div key={f.dias} className="faixa-turno">
+                              {c.faixas.length > 1 && <div className="muted">{f.dias}</div>}
+                              {f[quando].entrada}–{f[quando].saida}
+                              <div className="muted">int {f[quando].intervalo} · {f[quando].horas}</div>
+                            </div>
+                          ))}
+                        </td>
+                      ))}
                       <td style={{ whiteSpace: "nowrap" }}>
                         {c.semana_antes} → {c.semana_depois}
                         {!c.enquadrou && <div><span className="tag erro">não enquadrou em {c.meta}</span></div>}

@@ -11,11 +11,15 @@ const COLUNAS = [
   { nome: "Escala", tipo: "Texto", uso: "Dias e horário de entrada e saída (formatos abaixo).",
     exemplo: "ESCALA SEGUNDA - SEXTA (07:30 - 17:18)" },
   { nome: "Quantidade", tipo: "Número inteiro", uso: "Pessoas do cargo nessa escala.", exemplo: "4" },
+  { nome: "Intervalo", tipo: "Opcional", uso: "Intervalo que a pessoa faz, em minutos ou HH:MM. Vazio = mínimo da CLT.",
+    exemplo: "60" },
 ];
 
 const ESCALAS = [
   { formato: "ESCALA <DIA> - <DIA> (HH:MM - HH:MM)", exemplo: "ESCALA SEGUNDA - SABADO (07:00 - 15:20)",
     nota: "Dias corridos. Basta o início do dia (SEG, TER, QUA, QUI, SEX, SAB, DOM), com ou sem acento." },
+  { formato: "Faixas separadas por /", exemplo: "ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)",
+    nota: "Escala dinâmica: horário diferente por dia. Um dia sozinho também vale, ex.: SABADO (08:00 - 12:00)." },
   { formato: "ESCALA N X M (HH:MM - HH:MM)", exemplo: "ESCALA 6 X 1 (07:30 - 16:00)",
     nota: "Ciclo com N + M = 7. Os N dias de trabalho contam a partir de segunda." },
   { formato: "Saída menor que a entrada", exemplo: "ESCALA SEGUNDA - SEXTA (22:00 - 06:00)",
@@ -43,14 +47,14 @@ export default function FormatoPEC() {
           </header>
 
           <section>
-            <h3>1. Colunas necessárias</h3>
+            <h3>1. Colunas</h3>
             <div className="tabela-wrap">
               <table>
                 <thead><tr><th>Coluna</th><th>Tipo</th><th>O que é</th><th>Exemplo</th></tr></thead>
                 <tbody>
                   {COLUNAS.map((c) => (
                     <tr key={c.nome}>
-                      <td><code className="coluna">{c.nome}</code></td>
+                      <td><code className={c.tipo === "Opcional" ? "coluna opcional" : "coluna"}>{c.nome}</code></td>
                       <td style={{ whiteSpace: "nowrap" }}>{c.tipo}</td>
                       <td>{c.uso}</td>
                       <td className="mono">{c.exemplo}</td>
