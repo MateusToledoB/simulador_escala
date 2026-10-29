@@ -21,6 +21,21 @@ npm run dev          # API em :8000 e site em http://localhost:3000
 
 O site chama `/api/*`, que o Next repassa para a API (`API_URL`, padrão `http://localhost:8000`).
 
+## Acesso
+
+O site pede uma senha (tela `/entrar`); depois do login, um cookie libera o acesso por 30 dias. O código guarda só o
+hash da senha padrão. Para trocar a senha sem mexer no código, defina a variável de ambiente `SENHA_ACESSO` (no
+EasyPanel, em Ambiente) e reinicie o serviço.
+
+## Relatório Radar Escala 5x2
+
+Aba **Relatório** (`/relatorio`): confronta as escalas e jornadas cadastradas (exportação com as colunas ESCALA,
+HORAS SEMANAIS, DIRETOR, CR, NEGÓCIO, GERENTE_REGIONAL, COLABORADORES, INCONSISTÊNCIAS, COLAB. SEM ESCALA) com a
+PEC 221/2019: níveis de impacto, ação por CR, FTE estimado, matriz UF x diretor, plano por regional e cruzamento
+com o Cockpit. A base é enviada pelo botão "Enviar base (xlsx)" e fica salva no servidor em
+`apps/api/storage/relatorio.xlsx` (fora do git e da imagem Docker: depois de um novo deploy, envie de novo).
+Rotas: `GET /relatorio`, `POST /relatorio` (xlsx) e `POST /relatorio/cockpit` (csv/xlsx).
+
 ## API
 
 - `POST /simular`: `{"limite_horas": 42 | 40, "linhas": [{"cargo", "escala", "quantidade"}]}` (carga semanal máxima, padrão 42), com `"salario"` opcional (salário médio mensal: custo de cada pessoa = salário x 1,75; horista proporcional às horas) devolve uma opção por forma de ajuste (aumentar o intervalo, manter o intervalo e sair mais cedo, manter o intervalo e entrar mais tarde), cada uma com o seu rombo e as sugestões de contratação.

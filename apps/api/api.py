@@ -18,6 +18,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel, Field
 
+import relatorio
 from core.settings import settings
 from main import (ESTRATEGIAS, cenarios, frase_extras, horas_pessoa, minimo_de_pessoas, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
                   frases_horistas, horas_legais, horas_semana, horas_turno, intervalo, janela, ler_escala, ler_linhas, meta_semana,
@@ -374,3 +375,42 @@ async def importar(arquivo: UploadFile):
             raise HTTPException(400, f"Coluna {coluna} não encontrada. Necessárias: QF_CARGO, Escala, Quantidade.")
     campos = ("cargo", "escala", "quantidade")
     return {"centros": [{"cr": cr, "linhas": [{k: l[k] for k in campos} for l in linhas]} for cr, linhas in por_cr.items()]}
+
+
+# ---------------------------------------------------------------------------
+# RELATÓRIO RADAR ESCALA 5x2
+# ---------------------------------------------------------------------------
+@app.get("/relatorio")
+def relatorio_dados():
+    """Base do relatório salva no servidor (a última enviada); 404 se ainda não houver."""
+    dados = relatorio.carregar()
+    if dados is None:
+        raise HTTPException(404, "Nenhuma base enviada ainda.")
+    return dados
+
+
+@app.post("/relatorio")
+async def relatorio_enviar(arquivo: UploadFile):
+    """Recebe a exportação de escalas e jornadas (xlsx), salva no servidor e devolve os dados do relatório."""
+    if not (arquivo.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Envie a exportação em .xlsx.")
+    try:
+        return relatorio.salvar(await arquivo.read(), arquivo.filename)
+    except Exception as erro:
+        raise HTTPException(400, f"Não consegui ler a base: {erro}")
+
+
+@app.post("/relatorio/cockpit")
+async def relatorio_cockpit(arquivo: UploadFile):
+    """Cruza uma exportação do Cockpit (csv ou xlsx) com os CRs da base: devolve as colunas por código de CR."""
+    dados = relatorio.carregar()
+    if dados is None:
+        raise HTTPException(400, "Envie a base do relatório antes do Cockpit.")
+    nome = Path(arquivo.filename or "cockpit.csv").name
+    with tempfile.TemporaryDirectory() as pasta:
+        caminho = Path(pasta) / nome
+        caminho.write_bytes(await arquivo.read())
+        try:
+            return relatorio.cockpit(caminho, nome, [c[0] for c in dados["crs"]])
+        except Exception as erro:
+            raise HTTPException(400, f"Não consegui ler o Cockpit: {erro}")

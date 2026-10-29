@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 .env*.local
 
-# dados da PEC (salários por cargo): não versionar
-apps/api/storage/*.xlsx
+# dados da PEC (salários por cargo) e base do relatório: não versionar
+apps/api/storage/
+*.xlsx
+*.csv
 *.tsbuildinfo

@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { escalaTexto, lerEscala } from "@/lib/escala";
 import type { Dimensionamento as D, LinhaPEC, Resultado as R } from "@/lib/types";
 import Dimensionamento from "./Dimensionamento";
@@ -40,6 +41,9 @@ async function lerErro(resp: Response) {
 
 export default function Home() {
   const [modo, setModo] = useState<Modo>("quadro");
+  useEffect(() => { // vindo do relatório: /?modo=demanda
+    if (new URLSearchParams(window.location.search).get("modo") === "demanda") setModo("demanda");
+  }, []);
   const [linhas, setLinhas] = useState<Record<Modo, Linha[]>>({ quadro: [], demanda: [] });
   const [centros, setCentros] = useState<Centro[]>([]);
   const [resultado, setResultado] = useState<R | null>(null);
@@ -127,6 +131,7 @@ export default function Home() {
             {MODOS[m].rotulo}
           </button>
         ))}
+        <Link className="aba" href="/relatorio">Relatório</Link>
       </div>
       <p className="sub">{config.descricao}</p>
 

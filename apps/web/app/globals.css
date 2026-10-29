@@ -137,6 +137,7 @@ a.botao.primario { background: var(--primary); border-color: var(--primary); col
 .aba { border: 0; background: transparent; color: var(--muted); font-weight: 600; padding: 8px 14px; }
 .aba:hover { color: var(--text); }
 .aba.ativa { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(16, 24, 40, .08); }
+a.aba { display: inline-block; text-decoration: none; border-radius: 8px; }
 
 /* grade semana x turno do revezamento (T = trabalha, F = folga) */
 .grade { margin: 16px 0; }
@@ -185,3 +186,11 @@ tr.selecionada td, tr.selecionada:hover td { background: var(--primary-soft); }
 .tag.custo { background: var(--ok-soft); color: var(--ok); font-weight: 600; }
 .campo-salario { display: inline-flex; align-items: center; gap: 8px; }
 .campo-salario input { width: 120px; text-align: right; }
+
+/* tela de senha */
+.entrar { display: flex; justify-content: center; padding-top: 12vh; }
+.entrar form { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 360px; }
+.entrar h1 { margin: 0; font-size: 22px; }
+.entrar p { margin: 0; }
+.entrar input { width: 100%; }
+.entrar .erro-msg { margin: 0; }
