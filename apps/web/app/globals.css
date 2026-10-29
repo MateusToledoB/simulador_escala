@@ -1,20 +1,21 @@
-/* tema único, claro: fundo branco, blocos separados por borda e cinza leve */
+/* tema único, escuro: fundo grafite, blocos em superfície um tom acima, separados por borda */
 :root {
-  --bg: #ffffff;
-  --surface: #ffffff;
-  --subtle: #f7f8fa;
-  --border: #e5e7eb;
-  --text: #1c2430;
-  --muted: #64707f;
-  --primary: #1f5eff;
-  --primary-soft: #eef3ff;
-  --danger: #c62f2f;
-  --danger-soft: #fdecec;
-  --ok: #1d7a46;
-  --ok-soft: #e8f6ee;
-  --warn-soft: #fff7e3;
+  --bg: #0e141b;
+  --surface: #151d26;
+  --subtle: #1b2530;
+  --border: #2a3644;
+  --strong-border: #3a4858;
+  --text: #e3e9f0;
+  --muted: #93a1b1;
+  --primary: #5b8cff;
+  --primary-soft: #1c2a4a;
+  --danger: #ef6a5f;
+  --danger-soft: #3a1d1f;
+  --ok: #4cc38a;
+  --ok-soft: #15302a;
+  --warn-soft: #3a3018;
   --radius: 10px;
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -118,9 +119,9 @@ details summary { cursor: pointer; color: var(--primary); }
   border-radius: 14px;
   color: var(--text);
   background: var(--surface);
-  box-shadow: 0 24px 60px rgba(16, 24, 40, .18);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
 }
-.modal::backdrop { background: rgba(16, 24, 40, .45); }
+.modal::backdrop { background: rgba(0, 0, 0, .6); }
 .modal-corpo { display: flex; flex-direction: column; gap: 20px; padding: 24px; }
 .modal-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .modal-rodape { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding-top: 16px; border-top: 1px solid var(--border); }
@@ -136,7 +137,7 @@ a.botao.primario { background: var(--primary); border-color: var(--primary); col
 .abas { display: inline-flex; gap: 4px; padding: 4px; margin: 12px 0 8px; background: var(--subtle); border: 1px solid var(--border); border-radius: 10px; flex-wrap: wrap; }
 .aba { border: 0; background: transparent; color: var(--muted); font-weight: 600; padding: 8px 14px; }
 .aba:hover { color: var(--text); }
-.aba.ativa { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(16, 24, 40, .08); }
+.aba.ativa { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .4); }
 a.aba { display: inline-block; text-decoration: none; border-radius: 8px; }
 
 /* grade semana x turno do revezamento (T = trabalha, F = folga) */
@@ -147,13 +148,13 @@ a.aba { display: inline-block; text-decoration: none; border-radius: 8px; }
 .grade-tabela th, .grade-tabela td { text-align: center; padding: 6px 4px; }
 .grade-tabela th:first-child, .grade-tabela td:first-child { text-align: left; width: 96px; }
 .grade-tabela thead th { background: transparent; text-transform: none; font-size: 13px; letter-spacing: 0; color: var(--text); font-weight: 700; }
-.grade-tabela td { border-bottom-color: #d5d9e0; }
+.grade-tabela td { border-bottom-color: var(--strong-border); }
 .grade-nome { font-weight: 700; font-size: 15px; }
 .celula { display: block; font-size: 13px; font-weight: 700; line-height: 24px; border-radius: 6px; }
-.celula.t { color: #ffffff; background: var(--ok); }
-.celula.f { color: #2b3340; background: #d3d7de; }
+.celula.t { color: #ffffff; background: #24865a; }
+.celula.f { color: var(--text); background: #3a4656; }
 .grade-tabela tfoot td { font-size: 13px; color: var(--text); font-weight: 600; border-bottom: 0; font-variant-numeric: tabular-nums; }
-.grade-tabela tfoot tr:first-child td { border-top: 2px solid #c4c9d2; }
+.grade-tabela tfoot tr:first-child td { border-top: 2px solid var(--strong-border); }
 .grade-tabela tfoot td.falta { color: var(--danger); font-weight: 700; }
 
 /* escala com mais de um horário (dinâmica) */
