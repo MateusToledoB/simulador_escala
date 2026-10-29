@@ -12,6 +12,7 @@ export default function Relatorio() {
         <Link className="aba" href="/">Converter quadro atual</Link>
         <Link className="aba" href="/?modo=demanda">Dimensionar por demanda</Link>
         <Link className="aba ativa" href="/relatorio" aria-current="page">Relatório</Link>
+        <Link className="aba" href="/cr">Simular CR</Link>
       </nav>
       <Radar />
     </main>

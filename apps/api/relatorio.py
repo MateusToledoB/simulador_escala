@@ -132,6 +132,47 @@ def carregar():
     return _cache["dados"]
 
 
+def _tabela():
+    """Linhas da base salva (CR, função, jornada, escala, pessoas), ou None; refeita quando o arquivo muda."""
+    if not ARQUIVO.exists():
+        return None
+    marca = ARQUIVO.stat().st_mtime
+    if _cache.get("marca_tabela") != marca:
+        df = _ler(ARQUIVO)
+        funcao = next((c for c in df.columns if _chave(c).startswith("FUN")), None)
+        colab = pd.to_numeric(df["COLABORADORES"], errors="coerce")
+        tabela = pd.DataFrame({
+            "cr": _texto(df["CR"]),
+            "funcao": _texto(df[funcao], "Não informada") if funcao else ["Não informada"] * len(df),
+            "jornada": [None if pd.isna(v) or str(v).strip() in ("", "N/I") else str(v).strip()
+                        for v in (df["JORNADA"] if "JORNADA" in df.columns else [None] * len(df))],
+            "escala": [None if pd.isna(v) else str(v).strip() for v in df["ESCALA"]],
+            "pessoas": colab.fillna(0).astype(int),
+        })
+        _cache.update(marca_tabela=marca, tabela=tabela[tabela["pessoas"] > 0])
+    return _cache["tabela"]
+
+
+def centros():
+    """CRs da base com o total de pessoas, do maior para o menor; None se a base não foi enviada."""
+    t = _tabela()
+    if t is None:
+        return None
+    soma = t.groupby("cr")["pessoas"].sum().sort_values(ascending=False)
+    return [{"cr": cr, "pessoas": int(n)} for cr, n in soma.items()]
+
+
+def linhas_do_cr(cr: str):
+    """Linhas de um CR agrupadas por função, jornada e escala."""
+    t = _tabela()
+    if t is None:
+        return None
+    t = t[t["cr"] == cr].fillna({"jornada": "", "escala": ""})
+    g = t.groupby(["funcao", "jornada", "escala"], as_index=False)["pessoas"].sum()
+    return [{"funcao": r.funcao, "jornada": r.jornada or None, "escala": r.escala or None, "pessoas": int(r.pessoas)}
+            for r in g.itertuples()]
+
+
 def salvar(conteudo: bytes, nome: str):
     """Valida a base enviada e, se estiver certa, troca a salva em storage."""
     ARQUIVO.parent.mkdir(parents=True, exist_ok=True)

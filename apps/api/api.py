@@ -18,6 +18,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel, Field
 
+import otimizar_cr
 import relatorio
 from core.settings import settings
 from main import (ESTRATEGIAS, cenarios, frase_extras, horas_pessoa, minimo_de_pessoas, contrato, desc_turno, faixas, fmt_dias, fmt_hora, fmt_horas, fmt_min, frase_turno,
@@ -508,3 +509,49 @@ async def relatorio_cockpit(arquivo: UploadFile):
             return relatorio.cockpit(caminho, nome, [c[0] for c in dados["crs"]])
         except Exception as erro:
             raise HTTPException(400, f"Não consegui ler o Cockpit: {erro}")
+
+
+# ---------------------------------------------------------------------------
+# SIMULAR CR (base do relatório, otimizado com OR-Tools)
+# ---------------------------------------------------------------------------
+class SimulacaoCR(BaseModel):
+    cr: str
+    funcao: str
+    limite_horas: Literal[40, 42] = 42
+
+
+def _linhas_cr(cr):
+    linhas = relatorio.linhas_do_cr(cr)
+    if linhas is None:
+        raise HTTPException(404, "Nenhuma base enviada ainda. Envie a base na aba Relatório.")
+    if not linhas:
+        raise HTTPException(404, f"CR não encontrado na base: {cr}")
+    return linhas
+
+
+@app.get("/cr")
+def cr_lista():
+    """CRs da base do relatório, com o total de pessoas (do maior para o menor)."""
+    centros = relatorio.centros()
+    if centros is None:
+        raise HTTPException(404, "Nenhuma base enviada ainda. Envie a base na aba Relatório.")
+    return {"fonte": (relatorio.carregar() or {}).get("fonte"), "centros": centros}
+
+
+@app.get("/cr/funcoes")
+def cr_funcoes(cr: str):
+    """Funções do CR com as jornadas de hoje como o simulador as leu (sem otimizar)."""
+    return {"cr": cr, "funcoes": otimizar_cr.resumo_funcoes(_linhas_cr(cr))}
+
+
+@app.post("/cr/simular")
+def cr_simular(simulacao: SimulacaoCR):
+    """
+    Otimiza uma função do CR (CP-SAT): a cobertura de hoje, tirada das jornadas, coberta em 5x2 com a carga semanal
+    escolhida, em três cenários (mesmo quadro, só CLT, CLT + horista pontual).
+    """
+    itens = [l for l in _linhas_cr(simulacao.cr) if l["funcao"] == simulacao.funcao]
+    if not itens:
+        raise HTTPException(404, f"Função não encontrada no CR: {simulacao.funcao}")
+    return {"cr": simulacao.cr, "funcao": simulacao.funcao, "limite_horas": simulacao.limite_horas,
+            "dias": settings.NOMES, **otimizar_cr.simular_funcao(itens, simulacao.limite_horas)}

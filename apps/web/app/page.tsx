@@ -135,6 +135,7 @@ export default function Home() {
           </button>
         ))}
         <Link className="aba" href="/relatorio">Relatório</Link>
+        <Link className="aba" href="/cr">Simular CR</Link>
       </div>
       <p className="sub">{config.descricao}</p>
 

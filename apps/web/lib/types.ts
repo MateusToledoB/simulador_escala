@@ -145,3 +145,49 @@ export type Dimensionamento = {
   postos: number;
   propostas: Proposta[];
 };
+
+// Aba Simular CR (apps/api/otimizar_cr.py): GET /cr, GET /cr/funcoes, POST /cr/simular
+export type JornadaLida = { jornada: string; escala: string | null; pessoas: number; leitura: string; horas_semana: string };
+export type SemHorarioCR = { jornada: string; escala: string; pessoas: number };
+
+export type FuncaoCR = {
+  funcao: string;
+  pessoas: number;
+  com_horario: number;
+  jornadas: JornadaLida[];
+  sem_horario: SemHorarioCR[];
+};
+
+export type CenarioCR = {
+  id: "quadro" | "clt" | "clt_horista";
+  titulo: string;
+  descricao: string;
+  erro?: string;
+  clt: number;
+  horistas: number;
+  total: number;
+  horas_horista: string;
+  horas_contratadas: string;
+  rombo: string;
+  rombo_pct: number;
+  aproveitamento: number | null;
+  turnos: { entrada: string; saida: string; intervalo: string; horas_dia: string; pessoas: number; por_dia: number[];
+            folgas: { dias: string; pessoas: number }[] }[];
+  pessoas_horistas: { horas_semana: string; turnos: { dia: string; entrada: string; saida: string }[] }[];
+  grade: [number, number][][]; // dia x hora: [necessário, na escala] no pior momento da hora
+  otima: boolean;
+  segundos: number;
+  piso: string | null; // quando não é ótima: o mínimo que o OR-Tools garante
+};
+
+export type SimulacaoCR = {
+  cr: string;
+  funcao: string;
+  limite_horas: 40 | 42;
+  dias: string[];
+  atual: { pessoas: number; horas_semana: string; jornadas: JornadaLida[]; sem_horario: SemHorarioCR[] };
+  horas_necessarias: string;
+  pico: number;
+  grade: number[][] | null; // dia x hora: pico de pessoas no posto hoje
+  cenarios: CenarioCR[];
+};

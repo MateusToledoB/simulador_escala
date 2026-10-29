@@ -36,6 +36,18 @@ com o Cockpit. A base é enviada pelo botão "Enviar base (xlsx)" e fica salva n
 `apps/api/storage/relatorio.xlsx` (fora do git e da imagem Docker: depois de um novo deploy, envie de novo).
 Rotas: `GET /relatorio`, `POST /relatorio` (xlsx) e `POST /relatorio/cockpit` (csv/xlsx).
 
+## Simular CR (Google OR-Tools)
+
+Aba **Simular CR** (`/cr`): escolhe um CR da base do relatório (lista com filtro) e a carga de 42h ou 40h. Para cada
+função do CR, as JORNADAS do cadastro (ex. `018 - SEG/QUI-07has17h/SEX 07has16h`, `003 - 12X36-07has19h 12:00/13:00`)
+viram a cobertura de hoje por dia e horário (sem os intervalos; 12x36, 6x1 e sábado alternado entram pela fração da
+equipe presente no dia). O CP-SAT do OR-Tools (`apps/api/otimizar_cr.py`) monta a escala 5x2 com a carga inteira
+(entradas, intervalos de 1h a 2h e folgas) em três cenários: **mesmo quadro em 5x2** (as pessoas de hoje, menor
+rombo possível), **só CLT cobrindo tudo** (menos pessoas) e **CLT + horista pontual** (horistas de 2h a 6h por dia,
+até 80h por mês, no máximo um terço das horas). Jornadas sem horário (N/I, horista, cargo de confiança, revezamento
+sem hora) ficam fora do cálculo. Cada cenário tem até 10 s; se o tempo acaba, a tela avisa e mostra o mínimo que o
+OR-Tools garante. Rotas: `GET /cr`, `GET /cr/funcoes?cr=...` e `POST /cr/simular` (`{"cr", "funcao", "limite_horas"}`).
+
 ## API
 
 - `POST /simular`: `{"limite_horas": 42 | 40, "linhas": [{"cargo", "escala", "quantidade"}]}` (carga semanal máxima, padrão 42), com `"salario"` opcional em cada linha (salário médio do cargo: custo de cada pessoa = salário x 1,75; horista proporcional às horas; anual = 12 meses) devolve uma opção por forma de ajuste (aumentar o intervalo, sair mais cedo), cada uma com o seu rombo, o impacto por cargo e três sugestões de contratação: revezamento com escalas iguais (só 5x2, mesmo abaixo da carga), revezamento + horista (5x2 aproveitando a carga inteira, horistas no resto) e CLT + horista pontual (5x2 com a carga do turno; horistas só nos rombos pontuais, até 80h por mês).

@@ -1,0 +1,26 @@
+/* aba Simular CR */
+.campo-cr { display: flex; flex-direction: column; gap: 4px; min-width: 200px; flex: 1 1 200px; }
+.campo-cr.largo { flex: 3 1 360px; }
+.campo-cr select, .campo-cr input { width: 100%; }
+
+.kpi .valor small { font-size: 14px; color: var(--muted); font-weight: 600; }
+
+.progresso { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; color: var(--muted); }
+.progresso strong { color: var(--text); }
+.barra-progresso { flex: 1 1 160px; max-width: 320px; height: 6px; border-radius: 3px; background: var(--subtle); overflow: hidden; }
+.barra-progresso span { display: block; height: 100%; background: var(--primary); transition: width .3s; }
+
+/* mapas dia x hora */
+table.mapa { table-layout: fixed; min-width: 760px; }
+table.mapa th, table.mapa td { padding: 4px 0; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--bg); }
+table.mapa thead th { background: transparent; color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
+table.mapa tbody th { width: 44px; text-align: left; padding-left: 6px; color: var(--text); background: transparent; font-size: 12px; }
+table.mapa td { color: var(--text); border-left: 1px solid var(--bg); }
+table.mapa td.ok { background: #1f5b42; }
+table.mapa td.sobra { background: #1e3b6b; }
+table.mapa td.falta { background: #7a2a26; font-weight: 700; }
+.legenda { font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 0; }
+.chip { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-left: 8px; }
+.chip.ok { background: #1f5b42; }
+.chip.sobra { background: #1e3b6b; }
+.chip.falta { background: #7a2a26; }
