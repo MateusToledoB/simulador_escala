@@ -80,9 +80,10 @@ SEM_CR, SEM_EQUIPE = "Quadro", "Equipe"  # quando a PEC não tem SL_CR / SL_DESC
 
 def ler_linhas(arquivo=settings.ARQUIVO):
     """
-    Lê a PEC e devolve as linhas por CR: {cr: [{"equipe", "cargo", "escala", "quantidade"}]}, na ordem da planilha.
-    Obrigatórias: QF_CARGO, Escala (com o intervalo, se houver) e Quantidade. Opcionais: SL_CR (agrupa por CR)
-    e SL_DESC (equipe); sem elas, tudo fica num CR SEM_CR e numa equipe SEM_EQUIPE.
+    Lê a PEC e devolve as linhas por CR: {cr: [{"equipe", "cargo", "escala", "quantidade", "salario"}]}, na ordem
+    da planilha. Obrigatórias: QF_CARGO, Escala (com o intervalo, se houver) e Quantidade. Opcionais: SL_CR (agrupa
+    por CR), SL_DESC (equipe) e Salario (salário médio do cargo); sem SL_CR/SL_DESC, tudo fica num CR SEM_CR e numa
+    equipe SEM_EQUIPE.
     Linhas sem cargo ou sem quantidade são ignoradas. Equipe e cargo saem sem o código numérico do início.
     """
     df = pd.read_excel(arquivo, dtype=str)
@@ -91,6 +92,7 @@ def ler_linhas(arquivo=settings.ARQUIVO):
     c_qtd = _coluna(df, "Quantidade")
     c_cr = _coluna(df, "SL_CR", obrigatoria=False)
     c_equipe = _coluna(df, "SL_DESC", obrigatoria=False)
+    c_salario = _coluna(df, "Salario", obrigatoria=False)
 
     texto = lambda row, c: " ".join(str(row[c]).split()) if c and pd.notna(row[c]) else ""
     sem_codigo = lambda s: re.sub(r"^\d+\s*-\s*", "", s)
@@ -102,8 +104,22 @@ def ler_linhas(arquivo=settings.ARQUIVO):
             "cargo": sem_codigo(texto(row, c_cargo)),
             "escala": row[c_escala],
             "quantidade": int(float(row[c_qtd])),
+            "salario": _numero(row[c_salario]) if c_salario else None,
         })
     return dict(por_cr)
+
+
+def _numero(valor):
+    """'2.345,67', '2345.67' ou vazio -> float ou None."""
+    if valor is None or pd.isna(valor) or not str(valor).strip():
+        return None
+    texto = str(valor).strip().replace("R$", "").strip()
+    if "," in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    try:
+        return float(texto) or None
+    except ValueError:
+        return None
 
 
 def montar_equipes(linhas):
@@ -281,12 +297,9 @@ ESTRATEGIAS = {  # formas de levar a escala à meta; cada uma vira uma opção n
     "intervalo": ("Aumentar o intervalo",
                   f"Mantém entrada e saída e aumenta o intervalo até {fmt_horas(settings.INTERVALO_MAXIMO / 60)}; "
                   f"se não bastar, corta até {settings.CORTE_MAXIMO} min do fim do turno."),
-    "saida": ("Manter o intervalo e sair mais cedo",
+    "saida": ("Sair mais cedo",
               "Mantém a entrada e o intervalo de hoje e antecipa a saída até a semana caber na meta. "
               "O horário que deixa de ser coberto vira contratação."),
-    "entrada": ("Manter o intervalo e entrar mais tarde",
-                "Mantém a saída e o intervalo de hoje e atrasa a entrada até a semana caber na meta. "
-                "O horário que deixa de ser coberto vira contratação."),
 }
 
 
@@ -497,13 +510,13 @@ def turnos_do_rombo(blocos):
     return turnos
 
 
-def revezar(turnos):
+def revezar(turnos, minimo_uteis=None):
     """
     Revezamento 5x2 em escadinha. Turnos com o mesmo horário formam um turno da semana; em cada um, contrata pessoas
     que trabalham DIAS_TRABALHO dias nesse horário, com as FOLGAS_POR_SEMANA folgas em dias seguidos, postas onde
     ainda falta menos gente (empate: logo depois da folga da pessoa anterior, o que forma a escadinha).
-    Só contrata enquanto a pessoa cobre o rombo em pelo menos DIAS_UTEIS_REVEZAMENTO dos dias que trabalha,
-    e se o turno cabe em LIMITE_HORAS_SEMANA. Devolve ([{"turno": (ini, fim), "falta": [pessoas por dia],
+    Só contrata enquanto a pessoa cobre o rombo em pelo menos minimo_uteis (padrão DIAS_UTEIS_REVEZAMENTO) dos dias
+    que trabalha, e se o turno cabe em LIMITE_HORAS_SEMANA; com minimo_uteis=1 cobre tudo só com 5x2. Devolve ([{"turno": (ini, fim), "falta": [pessoas por dia],
     "pessoas": [{"folgas": [dias], "escala": {dia: (ini, fim)}}]}], turnos que sobram para horistas).
     """
     por_horario = defaultdict(lambda: [0] * 7)
@@ -521,7 +534,7 @@ def revezar(turnos):
                 uteis = sum(1 for d in range(7) if d not in folgas and falta[d])
                 opcoes.append((uteis, -sum(falta[d] for d in folgas), -((k - depois_de) % 7), k, folgas))
             uteis, _, _, k, folgas = max(opcoes)
-            if uteis < settings.DIAS_UTEIS_REVEZAMENTO:
+            if uteis < (minimo_uteis or settings.DIAS_UTEIS_REVEZAMENTO):
                 break
             dias = [d for d in range(7) if d not in folgas]
             for d in dias:
@@ -719,11 +732,13 @@ def minimo_de_pessoas(blocos):
 
 def sugerir(blocos, com_intervalo=False, turnos=None, pausas=None):
     """
-    Duas formas de cobrir os blocos (rombo ou demanda):
-      revezamento: equipes 5x2 por turno (revezar), com turnos iguais de até LIMITE_HORAS_SEMANA / DIAS_TRABALHO
-                   horas, completadas até LIMITE_HORAS_SEMANA com o que sobra (completar), e horistas para o
-                   que as equipes deixam descoberto;
-      horista:     só horistas.
+    Três formas de cobrir os blocos (rombo ou demanda):
+      revezamento_puro: só equipes 5x2 por turno, todas com o mesmo horário no turno (escalas iguais), mesmo que
+                        a pessoa fique abaixo de LIMITE_HORAS_SEMANA; sem horista nem complemento;
+      revezamento:      equipes 5x2 por turno (revezar), com turnos iguais de até LIMITE_HORAS_SEMANA / DIAS_TRABALHO
+                        horas, completadas até LIMITE_HORAS_SEMANA com o que sobra (completar), e horistas para o
+                        que as equipes deixam descoberto;
+      horista:          só horistas.
     com_intervalo (dimensionamento): o posto precisa de alguém também no intervalo; os turnos do revezamento
     se sobrepõem para cobri-lo (turnos_com_intervalo), e o intervalo que fica descoberto sobra para horistas.
     turnos, pausas: os turnos do revezamento já montados e o início dos intervalos (minimo_de_pessoas).
@@ -737,6 +752,13 @@ def sugerir(blocos, com_intervalo=False, turnos=None, pausas=None):
     else:
         turnos, pausas = turnos_iguais(blocos, limite), {}
     grupos, _ = revezar(turnos)
+    puros, _ = revezar(turnos, minimo_uteis=1)
+    for g in grupos + puros:
+        ini, fim = g["turno"]
+        inicio = pausas.get((ini % 1440, fim - ini))
+        if mostrar_intervalo and len(turno(ini, fim)) > 1:
+            segs = turno(ini, fim, None, None if inicio is None else ini + inicio)
+            g["intervalo"] = (segs[0][1], segs[1][0])
     linha = Linha()
     falta = [0] * linha.n
     for ini, fim in blocos:
@@ -745,9 +767,6 @@ def sugerir(blocos, com_intervalo=False, turnos=None, pausas=None):
     for g in grupos:
         ini, fim = g["turno"]
         inicio = pausas.get((ini % 1440, fim - ini))
-        if mostrar_intervalo and len(turno(ini, fim)) > 1:
-            segs = turno(ini, fim, None, None if inicio is None else ini + inicio)
-            g["intervalo"] = (segs[0][1], segs[1][0])
         for p in g["pessoas"]:
             for ini, fim in p["escala"].values():
                 segs = turno(ini, fim, None, None if inicio is None else ini + inicio) if com_intervalo else [(ini, fim)]
@@ -756,6 +775,7 @@ def sugerir(blocos, com_intervalo=False, turnos=None, pausas=None):
                         falta[s] -= 1
     sobra = completar(grupos, turnos_do_rombo(blocos_de_falta([max(0, f) for f in falta])))
     return {
+        "revezamento_puro": {"turnos": puros, "horistas": []},
         "revezamento": {"turnos": grupos, "horistas": horistas(None, com_intervalo, sobra)},
         "horista": horistas(blocos, com_intervalo),
     }

@@ -1,6 +1,23 @@
 // Formato da resposta de POST /simular (apps/api/api.py: resultado_json)
 
-export type LinhaPEC = { cargo: string; escala: string; quantidade: number };
+export type LinhaPEC = { cargo: string; escala: string; quantidade: number; salario?: number | null };
+
+// custo mensal do quadro informado (linhas com salário); o anual é x 12
+export type CustoQuadro = { mensal: number; pessoas_com_salario: number; salario_medio: number };
+
+// impacto por cargo (api._por_cargo): custo das contratações repartido pelas horas que cada cargo perdeu (quadro)
+// ou de posto (demanda), cada um pelo próprio salário
+export type PorCargo = {
+  cargo: string;
+  pessoas: number;
+  salario: number | null;
+  custo_atual: number | null;
+  horas: string;
+  parte: number;
+  impacto_revezamento_puro: number | null;
+  impacto_revezamento: number | null;
+  impacto_horista: number | null;
+};
 
 export type Turno = {
   entrada: string;
@@ -67,7 +84,8 @@ export type Revezamento = {
   horistas: Contratacoes;
 };
 
-export type Sugestoes = { revezamento: Revezamento; horista: Contratacoes };
+// revezamento_puro: só 5x2 com escalas iguais; revezamento: 5x2 aproveitando a carga + horistas; horista: só horistas
+export type Sugestoes = { revezamento_puro: Revezamento; revezamento: Revezamento; horista: Contratacoes };
 
 export type Config = {
   limite_horas_semana: number;
@@ -84,6 +102,7 @@ export type Opcao = {
   id: string;
   titulo: string;
   descricao: string;
+  salario_contratacao: number | null; // média dos salários dos cargos que perderam cobertura
   cargos: Cargo[];
   rombo: {
     blocos: { inicio: string; fim: string; duracao: string; pessoas: number }[];
@@ -94,12 +113,13 @@ export type Opcao = {
     colaboradores_equivalentes: number;
   };
   sugestoes: Sugestoes | null;
+  por_cargo: PorCargo[];
 };
 
 export type Resultado = {
   config: Config;
   total_pessoas: number;
-  custo_quadro: number | null;
+  custo_quadro: CustoQuadro | null;
   sem_horario: LinhaPEC[];
   opcoes: Opcao[];
 };
@@ -110,10 +130,12 @@ export type Proposta = {
   id: string;
   titulo: string;
   descricao: string;
+  salario_contratacao: number | null; // média dos salários dos postos, pelas horas de posto
   postos: { cargo: string; escala: string; quantidade: number; dias: string; horario: string; reduzido: boolean }[];
   horas_posto_semana: string;
   colaboradores_equivalentes: number;
   sugestoes: Sugestoes;
+  por_cargo: PorCargo[];
 };
 
 export type Dimensionamento = {

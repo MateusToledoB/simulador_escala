@@ -35,16 +35,20 @@ class LinhaPEC(BaseModel):
                                     "'ESCALA SEGUNDA - QUINTA (08:00 - 19:00) / SEXTA (08:00 - 18:00)'; sem intervalo, "
                                     "usa o mínimo da CLT")
     quantidade: int = Field(gt=0)
+    salario: float | None = Field(None, ge=0, description="salário médio mensal do cargo; custo = salário x FATOR_ENCARGOS")
 
 
 class Simulacao(BaseModel):
     linhas: list[LinhaPEC] = Field(min_length=1)
     limite_horas: Literal[40, 42] = Field(42, description="carga semanal máxima de cada pessoa")
-    salario: float | None = Field(None, ge=0, description="salário médio mensal; custo = salário x FATOR_ENCARGOS")
+    salario: float | None = Field(None, ge=0, description="salário padrão das linhas sem salário próprio")
+
+    def linhas_com_salario(self):
+        return [{**l.model_dump(), "salario": l.salario or self.salario or None} for l in self.linhas]
 
 
 _calculo = threading.Lock()
-_salario = None  # salário médio da simulação em andamento (_parametros)
+_salario = None  # salário das contratações em cálculo (_parametros / _salario_medio)
 
 
 @contextmanager
@@ -61,6 +65,69 @@ def _parametros(simulacao):
             yield
         finally:
             settings.LIMITE_HORAS_SEMANA, _salario = antes, None
+
+
+def _salario_medio(pesos):
+    """Média dos salários [(peso, salário)] ponderada pelo peso, só com as linhas que têm salário; None sem nenhum."""
+    com = [(p, s) for p, s in pesos if s]
+    if not com:
+        return None
+    total = sum(p for p, _ in com)
+    return sum(p * s for p, s in com) / total if total > 0 else sum(s for _, s in com) / len(com)
+
+
+def _perda(e):
+    """Horas de posto por semana que a equipe deixa de cobrir com a nova escala (peso do salário das contratações)."""
+    antes = sum(e["dias_antes"][d] * (janela(e["antes"][d])[1] - janela(e["antes"][d])[0]) for d in e["dias"])
+    depois = sum(q * (janela(e["depois"][d])[1] - janela(e["depois"][d])[0]) for d, q in e["dias_depois"].items())
+    return max(0, antes - depois) / 60
+
+
+def _por_cargo(itens, sugestoes):
+    """
+    Impacto por cargo. itens = [(cargo, pessoas, salário, peso)], com peso = horas por semana que o cargo deixa de
+    cobrir (quadro) ou de posto (demanda). O custo das contratações é repartido pelo peso de cada cargo, cada um
+    pelo próprio salário: a soma dos cargos com salário dá o custo total das contratações.
+    """
+    g = {}
+    for cargo, qtd, sal, peso in itens:
+        o = g.setdefault(cargo, {"pessoas": 0, "folha": 0.0, "com_salario": 0, "peso": 0.0})
+        o["pessoas"] += qtd
+        o["peso"] += peso
+        if sal:
+            o["folha"] += sal * qtd
+            o["com_salario"] += qtd
+    total = sum(o["peso"] for o in g.values())
+    # média dos salários pesada pelo peso, como em _salario_medio: base para repartir o custo das contratações
+    pesos = [(o["peso"], o["folha"] / o["com_salario"]) for o in g.values() if o["com_salario"] and o["peso"] > 0]
+    base = sum(p * s for p, s in pesos)
+    custos = {k: (s or {}).get("custo_mensal") for k, s in (sugestoes or {}).items()}
+    out = []
+    for cargo, o in g.items():
+        sal = o["folha"] / o["com_salario"] if o["com_salario"] else None
+        fatia = o["peso"] * sal / base if sal and base else 0
+        out.append({
+            "cargo": cargo,
+            "pessoas": o["pessoas"],
+            "salario": None if sal is None else round(sal, 2),
+            "custo_atual": round(o["folha"] * settings.FATOR_ENCARGOS, 2) if o["folha"] else None,
+            "horas": fmt_horas(o["peso"]),
+            "parte": o["peso"] / total if total else 0,
+            **{f"impacto_{k}": None if c is None or sal is None else round(c * fatia, 2) for k, c in custos.items()},
+        })
+    return sorted(out, key=lambda x: (-x["parte"], -x["pessoas"]))
+
+
+def _custo_quadro(linhas):
+    """Custo mensal do quadro informado (quantidade x salário x FATOR_ENCARGOS das linhas com salário)."""
+    com = [l for l in linhas if l.get("salario")]
+    if not com:
+        return None
+    return {
+        "mensal": round(sum(l["quantidade"] * l["salario"] for l in com) * settings.FATOR_ENCARGOS, 2),
+        "pessoas_com_salario": sum(l["quantidade"] for l in com),
+        "salario_medio": round(_salario_medio([(l["quantidade"], l["salario"]) for l in com]), 2),
+    }
 
 
 def _custo(pessoas=0, horas_horista=0.0):
@@ -182,15 +249,27 @@ def _config_json():
 
 
 def _sugestoes_json(r):
-    return {"revezamento": _revezamento_json(r["revezamento"]), "horista": _horistas_json(r["horista"])}
+    return {"revezamento_puro": _revezamento_json(r["revezamento_puro"]),
+            "revezamento": _revezamento_json(r["revezamento"]), "horista": _horistas_json(r["horista"])}
 
 
-def _opcao_json(estrategia, r):
+def _opcao_json(estrategia, r, fora):
+    """
+    As contratações custam o salário médio dos cargos que perderam cobertura, ponderado pelas horas perdidas.
+    fora = linhas do quadro sem horário reconhecido: entram só no custo atual por cargo.
+    """
+    global _salario
     titulo, descricao = ESTRATEGIAS[estrategia]
+    _salario = (_salario_medio([(_perda(e), e.get("salario")) for e in r["equipes"]])
+                or _salario_medio([(e["quantidade"], e.get("salario")) for e in r["equipes"]]))
+    sugestoes = _sugestoes_json(r) if r["blocos"] else None
+    itens = ([(e["cargo"], e["quantidade"], e.get("salario"), _perda(e)) for e in r["equipes"]]
+             + [(l["cargo"], l["quantidade"], l.get("salario"), 0) for l in fora])
     return {
         "id": estrategia,
         "titulo": titulo,
         "descricao": descricao,
+        "salario_contratacao": None if _salario is None else round(_salario, 2),
         "cargos": [_cargo_json(e) for e in r["equipes"]],
         "rombo": {
             "blocos": [{"inicio": fmt_min(ini), "fim": fmt_min(fim), "duracao": fmt_horas((fim - ini) / 60),
@@ -202,18 +281,20 @@ def _opcao_json(estrategia, r):
             "percentual": r["total_horas"] / r["horas_demandadas"] if r["horas_demandadas"] else 0,
             "colaboradores_equivalentes": round(r["total_horas"] / settings.LIMITE_HORAS_SEMANA, 1),
         },
-        "sugestoes": _sugestoes_json(r) if r["blocos"] else None,
+        "sugestoes": sugestoes,
+        "por_cargo": _por_cargo(itens, sugestoes),
     }
 
 
-def resultado_json(opcoes, equipes, sem_horario):
-    """opcoes = {estrategia: resultado de calcular} (main.cenarios)."""
+def resultado_json(opcoes, equipes, sem_horario, linhas):
+    """opcoes = {estrategia: resultado de calcular} (main.cenarios); linhas = as do quadro, com o salário."""
     return {
         "config": _config_json(),
         "total_pessoas": sum(e["quantidade"] for e in equipes) + sum(s[3] for s in sem_horario),
-        "custo_quadro": _custo(sum(e["quantidade"] for e in equipes) + sum(s[3] for s in sem_horario)),
+        "custo_quadro": _custo_quadro(linhas),
         "sem_horario": [{"cargo": c, "escala": esc, "quantidade": qtd} for _, c, esc, qtd in sem_horario],
-        "opcoes": [_opcao_json(estrategia, r) for estrategia, r in opcoes.items()],
+        "opcoes": [_opcao_json(estrategia, r, [l for l in linhas if not ler_escala(l["escala"])])
+                   for estrategia, r in opcoes.items()],
     }
 
 
@@ -227,9 +308,10 @@ def health():
 
 @app.post("/simular")
 def simular(simulacao: Simulacao):
-    equipes, sem_horario = montar_equipes([l.model_dump() for l in simulacao.linhas])
+    linhas = simulacao.linhas_com_salario()
+    equipes, sem_horario = montar_equipes(linhas)
     with _parametros(simulacao):
-        return resultado_json(cenarios(equipes), equipes, sem_horario)
+        return resultado_json(cenarios(equipes), equipes, sem_horario, linhas)
 
 
 PROPOSTAS = {
@@ -261,12 +343,15 @@ def _horario_postos(postos, blocos):
 def _proposta_json(id_, postos, blocos, sugestoes):
     titulo, descricao = PROPOSTAS[id_]
     horas = sum(fim - ini for ini, fim in blocos) / 60
+    sugestoes = _sugestoes_json(sugestoes)
     return {
         "id": id_, "titulo": titulo, "descricao": descricao,
+        "salario_contratacao": None if _salario is None else round(_salario, 2),
         "postos": _horario_postos(postos, blocos),
         "horas_posto_semana": fmt_horas(horas),
         "colaboradores_equivalentes": round(horas / settings.LIMITE_HORAS_SEMANA, 1),
-        "sugestoes": _sugestoes_json(sugestoes),
+        "sugestoes": sugestoes,
+        "por_cargo": _por_cargo([(p["cargo"], p["quantidade"], p["salario"], p["horas"]) for p in postos], sugestoes),
     }
 
 
@@ -276,17 +361,24 @@ def dimensionar(simulacao: Simulacao):
     Dimensiona a partir da demanda: cada linha diz quantos postos precisam estar ocupados nos dias e horário da
     escala (ex.: 5 postos, 'ESCALA SEGUNDA - DOMINGO (06:00 - 22:00)'). Devolve duas propostas (PROPOSTAS):
     manter o horário do posto, com o intervalo coberto, e o mínimo de colaboradores (main.minimo_de_pessoas).
+    As contratações custam o salário médio dos postos, ponderado pelas horas de posto de cada linha.
     """
-    blocos, postos, sem_horario = [], [], []
-    for l in simulacao.linhas:
-        horarios = ler_escala(l.escala)
+    global _salario
+    blocos, postos, sem_horario, pesos = [], [], [], []
+    for l in simulacao.linhas_com_salario():
+        horarios = ler_escala(l["escala"])
         if not horarios:
-            sem_horario.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade})
+            sem_horario.append({"cargo": l["cargo"], "escala": l["escala"], "quantidade": l["quantidade"]})
             continue
-        blocos += [(d * 1440 + ini, d * 1440 + fim) for d, (ini, fim, _) in horarios.items() for _ in range(l.quantidade)]
-        postos.append({"cargo": l.cargo, "escala": l.escala, "quantidade": l.quantidade, "dias": fmt_dias(list(horarios)),
+        novos = [(d * 1440 + ini, d * 1440 + fim) for d, (ini, fim, _) in horarios.items() for _ in range(l["quantidade"])]
+        blocos += novos
+        pesos.append((sum(b - a for a, b in novos), l["salario"]))
+        postos.append({"cargo": l["cargo"], "escala": l["escala"], "quantidade": l["quantidade"],
+                       "salario": l["salario"], "horas": sum(b - a for a, b in novos) / 60,
+                       "dias": fmt_dias(list(horarios)),
                        "horarios": [(d, (d * 1440 + ini, d * 1440 + fim)) for d, (ini, fim, _) in horarios.items()]})
     with _parametros(simulacao):
+        _salario = _salario_medio(pesos)
         propostas = []
         if blocos:
             propostas.append(_proposta_json("horario", postos, blocos, sugerir(sorted(blocos), com_intervalo=True)))
@@ -307,13 +399,14 @@ MODELO_COLUNAS = [  # (coluna, tipo, o que é, exemplo); a ordem é a do modelo
      "'ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)' ou 'ESCALA 6 X 1 (07:30 - 16:00)'.",
      "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)"),
     ("Quantidade", "Número inteiro", "Pessoas do cargo nessa escala.", "4"),
+    ("Salario", "Número (opcional)", "Salário médio mensal do cargo, para o impacto mensal e anual (x 1,75).", "1850,00"),
 ]
 MODELO_EXEMPLOS = [
-    ["200 - AUXILIAR DE LIMPEZA", "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)", 4],
-    ["201 - AUXILIAR DE LIMPEZA - 6X1", "ESCALA 6 X 1 (07:30 - 16:00)", 2],
+    ["200 - AUXILIAR DE LIMPEZA", "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)", 4, 1850],
+    ["201 - AUXILIAR DE LIMPEZA - 6X1", "ESCALA 6 X 1 (07:30 - 16:00)", 2, 1850],
     ["202 - LIDER DE LIMPEZA", "ESCALA SEGUNDA - QUINTA (08:00 - 19:00, INTERVALO 12:00 - 13:00) / "
-                               "SEXTA (08:00 - 18:00, INTERVALO 12:00 - 13:00)", 1],
-    ["203 - PORTEIRO", "ESCALA SEGUNDA - SABADO (22:00 - 06:00, INTERVALO 02:00 - 03:00)", 2],
+                               "SEXTA (08:00 - 18:00, INTERVALO 12:00 - 13:00)", 1, 2600],
+    ["203 - PORTEIRO", "ESCALA SEGUNDA - SABADO (22:00 - 06:00, INTERVALO 02:00 - 03:00)", 2, 2100],
 ]
 
 
@@ -347,7 +440,7 @@ def modelo():
 
     cabecalho = Font(bold=True, color="FFFFFF")
     fundo = PatternFill("solid", fgColor="1F5EFF")
-    for aba, larguras in ((pec, [40, 96, 12]), (inst, [14, 16, 70, 60])):
+    for aba, larguras in ((pec, [40, 96, 12, 14]), (inst, [14, 16, 70, 60])):
         for celula in aba[1]:
             celula.font, celula.fill = cabecalho, fundo
         for i, largura in enumerate(larguras):
@@ -373,7 +466,7 @@ async def importar(arquivo: UploadFile):
             por_cr = ler_linhas(caminho)
         except KeyError as coluna:
             raise HTTPException(400, f"Coluna {coluna} não encontrada. Necessárias: QF_CARGO, Escala, Quantidade.")
-    campos = ("cargo", "escala", "quantidade")
+    campos = ("cargo", "escala", "quantidade", "salario")
     return {"centros": [{"cr": cr, "linhas": [{k: l[k] for k in campos} for l in linhas]} for cr, linhas in por_cr.items()]}
 
 

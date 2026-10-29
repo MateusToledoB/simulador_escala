@@ -11,6 +11,8 @@ const COLUNAS = [
   { nome: "Escala", tipo: "Texto", uso: "Dias, horário de entrada e saída e, se houver, o intervalo (formatos abaixo).",
     exemplo: "ESCALA SEGUNDA - SEXTA (07:30 - 17:18, INTERVALO 12:00 - 13:00)" },
   { nome: "Quantidade", tipo: "Número inteiro", uso: "Pessoas do cargo nessa escala.", exemplo: "4" },
+  { nome: "Salario", tipo: "Número (opcional)", uso: "Salário médio mensal do cargo, para o impacto mensal e anual.",
+    exemplo: "1850,00", opcional: true },
 ];
 
 const ESCALAS = [
@@ -54,7 +56,7 @@ export default function FormatoPEC() {
                 <tbody>
                   {COLUNAS.map((c) => (
                     <tr key={c.nome}>
-                      <td><code className={c.tipo === "Opcional" ? "coluna opcional" : "coluna"}>{c.nome}</code></td>
+                      <td><code className={"opcional" in c ? "coluna opcional" : "coluna"}>{c.nome}</code></td>
                       <td style={{ whiteSpace: "nowrap" }}>{c.tipo}</td>
                       <td>{c.uso}</td>
                       <td className="mono">{c.exemplo}</td>
@@ -64,7 +66,7 @@ export default function FormatoPEC() {
               </table>
             </div>
             <p className="muted" style={{ margin: "8px 0 0", fontSize: 13 }}>
-              Outras colunas (Salario, Total, QF_ID…) podem existir e são ignoradas. O nome da coluna não diferencia
+              Outras colunas (Total, QF_ID…) podem existir e são ignoradas. O nome da coluna não diferencia
               maiúsculas e tolera acentos corrompidos do export.
             </p>
           </section>

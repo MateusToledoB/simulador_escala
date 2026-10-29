@@ -1,14 +1,10 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { custo } from "@/lib/moeda";
-import type { Config, Opcao, Resultado as R } from "@/lib/types";
-import Sugestoes from "./Sugestoes";
-
-const contratacoes = (o: Opcao) => o.sugestoes
-  ? { revezamento: o.sugestoes.revezamento.total, horista: o.sugestoes.horista.total,
-      custoRevezamento: o.sugestoes.revezamento.custo_mensal, custoHorista: o.sugestoes.horista.custo_mensal }
-  : { revezamento: 0, horista: 0, custoRevezamento: null, custoHorista: null };
+import { anual, custo } from "@/lib/moeda";
+import type { Config, CustoQuadro, Opcao, Resultado as R } from "@/lib/types";
+import Projecao from "./Projecao";
+import Sugestoes, { ALTERNATIVAS } from "./Sugestoes";
 
 /** Todas as opções lado a lado; clicar numa linha abre o detalhe dela. */
 function Comparacao({ opcoes, atual, onEscolher }: { opcoes: Opcao[]; atual: number; onEscolher: (i: number) => void }) {
@@ -23,30 +19,28 @@ function Comparacao({ opcoes, atual, onEscolher }: { opcoes: Opcao[]; atual: num
           <thead>
             <tr>
               <th>Opção</th><th className="num">Horas descobertas</th>
-              <th className="num">Contratações (revezamento)</th><th className="num">Contratações (só horista)</th>
+              {ALTERNATIVAS.map((a) => <th key={a.chave} className="num">{a.titulo}</th>)}
             </tr>
           </thead>
           <tbody>
-            {opcoes.map((o, i) => {
-              const c = contratacoes(o);
-              return (
-                <tr key={o.id} className={i === atual ? "clicavel selecionada" : "clicavel"} onClick={() => onEscolher(i)}>
-                  <td>
-                    <strong>{o.titulo}</strong>
-                    <div className="muted" style={{ fontSize: 12 }}>{o.descricao}</div>
-                  </td>
-                  <td className="num">{o.rombo.total_horas}</td>
-                  <td className="num">
-                    {c.revezamento}
-                    {c.custoRevezamento != null && <div className="muted">{custo(c.custoRevezamento)}/mês</div>}
-                  </td>
-                  <td className="num">
-                    {c.horista}
-                    {c.custoHorista != null && <div className="muted">{custo(c.custoHorista)}/mês</div>}
-                  </td>
-                </tr>
-              );
-            })}
+            {opcoes.map((o, i) => (
+              <tr key={o.id} className={i === atual ? "clicavel selecionada" : "clicavel"} onClick={() => onEscolher(i)}>
+                <td>
+                  <strong>{o.titulo}</strong>
+                  <div className="muted" style={{ fontSize: 12 }}>{o.descricao}</div>
+                </td>
+                <td className="num">{o.rombo.total_horas}</td>
+                {ALTERNATIVAS.map((a) => {
+                  const s = o.sugestoes?.[a.chave];
+                  return (
+                    <td key={a.chave} className="num">
+                      {s ? s.total : 0} pessoa(s)
+                      {s?.custo_mensal != null && <div className="muted">{custo(s.custo_mensal)}/mês · {anual(s.custo_mensal)}/ano</div>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -55,16 +49,13 @@ function Comparacao({ opcoes, atual, onEscolher }: { opcoes: Opcao[]; atual: num
 }
 
 function DetalheOpcao({ o, config, totalPessoas, custoQuadro, semHorario }:
-  { o: Opcao; config: Config; totalPessoas: number; custoQuadro: number | null; semHorario: R["sem_horario"] }) {
+  { o: Opcao; config: Config; totalPessoas: number; custoQuadro: CustoQuadro | null; semHorario: R["sem_horario"] }) {
   const maxDia = Math.max(1, ...o.rombo.por_dia.map((d) => d.valor));
 
   return (
     <>
       <div className="kpis">
         <div className="kpi"><div className="valor">{totalPessoas}</div><div className="rotulo">colaboradores em {o.cargos.length + semHorario.length} cargo(s)</div></div>
-        {custoQuadro != null && (
-          <div className="kpi"><div className="valor">{custo(custoQuadro)}</div><div className="rotulo">custo mensal do quadro atual (salário x {config.fator_encargos.toLocaleString("pt-BR")})</div></div>
-        )}
         <div className="kpi"><div className="valor">{o.rombo.total_horas}</div><div className="rotulo">descobertas por semana</div></div>
         <div className="kpi"><div className="valor">{(o.rombo.percentual * 100).toFixed(1)}%</div><div className="rotulo">das {o.rombo.horas_demandadas} cobertas hoje</div></div>
         <div className="kpi"><div className="valor">{o.rombo.colaboradores_equivalentes.toLocaleString("pt-BR")}</div><div className="rotulo">colaborador(es) de {config.limite_horas_semana}h equivalentes</div></div>
@@ -166,6 +157,10 @@ function DetalheOpcao({ o, config, totalPessoas, custoQuadro, semHorario }:
           </div>
         )}
       </section>
+
+      <Projecao sugestoes={o.sugestoes} porCargo={o.por_cargo} rotuloHoras="Horas perdidas/semana"
+                salario={o.salario_contratacao} fator={config.fator_encargos}
+                quadro={custoQuadro} totalPessoas={totalPessoas} />
 
       {o.sugestoes && <Sugestoes s={o.sugestoes} dias={config.dias} titulo="Sugestões para cobrir o rombo" />}
     </>

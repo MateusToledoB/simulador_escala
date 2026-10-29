@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { custo } from "@/lib/moeda";
+import { anual, custo } from "@/lib/moeda";
 import type { Dimensionamento as D, Proposta } from "@/lib/types";
-import Sugestoes from "./Sugestoes";
+import Projecao from "./Projecao";
+import Sugestoes, { ALTERNATIVAS } from "./Sugestoes";
 
 /** As duas propostas lado a lado; clicar numa linha abre o detalhe dela. */
 function Comparacao({ d, atual, onEscolher }: { d: D; atual: number; onEscolher: (i: number) => void }) {
-  const comCusto = d.config.salario != null;
+  const salario = d.propostas[0]?.salario_contratacao ?? null;
+  const comCusto = salario != null;
   return (
     <section className="card">
       <h2>Propostas</h2>
@@ -17,13 +19,11 @@ function Comparacao({ d, atual, onEscolher }: { d: D; atual: number; onEscolher:
           <thead>
             <tr>
               <th>Proposta</th><th>Horário do posto</th><th className="num">Horas de posto</th>
-              <th className="num">Revezamento</th><th className="num">Só horista</th>
+              {ALTERNATIVAS.map((a) => <th key={a.chave} className="num">{a.titulo}</th>)}
             </tr>
           </thead>
           <tbody>
             {d.propostas.map((p, i) => {
-              const rev = p.sugestoes.revezamento;
-              const hor = p.sugestoes.horista;
               return (
                 <tr key={p.id} className={i === atual ? "clicavel selecionada" : "clicavel"} onClick={() => onEscolher(i)}>
                   <td>
@@ -38,14 +38,15 @@ function Comparacao({ d, atual, onEscolher }: { d: D; atual: number; onEscolher:
                     ))}
                   </td>
                   <td className="num">{p.horas_posto_semana}</td>
-                  <td className="num">
-                    {rev.total} pessoa(s)
-                    {comCusto && <div className="muted">{custo(rev.custo_mensal)}/mês</div>}
-                  </td>
-                  <td className="num">
-                    {hor.total} pessoa(s)
-                    {comCusto && <div className="muted">{custo(hor.custo_mensal)}/mês</div>}
-                  </td>
+                  {ALTERNATIVAS.map((a) => {
+                    const s = p.sugestoes[a.chave];
+                    return (
+                      <td key={a.chave} className="num">
+                        {s.total} pessoa(s)
+                        {comCusto && <div className="muted">{custo(s.custo_mensal)}/mês · {anual(s.custo_mensal)}/ano</div>}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -54,8 +55,8 @@ function Comparacao({ d, atual, onEscolher }: { d: D; atual: number; onEscolher:
       </div>
       {comCusto && (
         <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
-          Custo mensal = salário médio de {custo(d.config.salario)} x {d.config.fator_encargos.toLocaleString("pt-BR")} por
-          pessoa 5x2; horista proporcional às horas da semana (horas / {d.config.limite_horas_semana}h).
+          Custo mensal = salário médio de {custo(salario)} x {d.config.fator_encargos.toLocaleString("pt-BR")} por
+          pessoa 5x2; horista proporcional às horas da semana (horas / {d.config.limite_horas_semana}h); anual = 12 meses.
         </p>
       )}
     </section>
@@ -71,10 +72,9 @@ function DetalheProposta({ p, d }: { p: Proposta; d: D }) {
         <div className="kpi"><div className="valor">{p.horas_posto_semana}</div><div className="rotulo">de posto ocupado por semana</div></div>
         <div className="kpi"><div className="valor">{p.colaboradores_equivalentes.toLocaleString("pt-BR")}</div><div className="rotulo">colaborador(es) de {d.config.limite_horas_semana}h equivalentes</div></div>
         <div className="kpi"><div className="valor">{rev.total}</div><div className="rotulo">contratações no revezamento</div></div>
-        {rev.custo_mensal != null && (
-          <div className="kpi"><div className="valor">{custo(rev.custo_mensal)}</div><div className="rotulo">por mês no revezamento</div></div>
-        )}
       </div>
+      <Projecao sugestoes={p.sugestoes} porCargo={p.por_cargo} rotuloHoras="Horas de posto/semana"
+                salario={p.salario_contratacao} fator={d.config.fator_encargos} />
       <Sugestoes s={p.sugestoes} dias={d.config.dias} titulo={p.titulo + ": como cobrir a demanda"} />
     </>
   );

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { escalaTexto, lerEscala } from "@/lib/escala";
+import { lerValor } from "@/lib/moeda";
 import type { Dimensionamento as D, LinhaPEC, Resultado as R } from "@/lib/types";
 import Dimensionamento from "./Dimensionamento";
 import FormatoPEC from "./FormatoPEC";
@@ -51,7 +52,6 @@ export default function Home() {
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [limite, setLimite] = useState<40 | 42>(42);
-  const [salario, setSalario] = useState("");
   const arquivo = useRef<HTMLInputElement>(null);
 
   const atuais = linhas[modo];
@@ -66,7 +66,10 @@ export default function Home() {
   const usarCentro = (c: Centro) => {
     setLinhas((l) => ({
       ...l,
-      quadro: c.linhas.map((x) => novaLinha({ cargo: x.cargo, quantidade: x.quantidade, escala: lerEscala(x.escala) })),
+      quadro: c.linhas.map((x) => novaLinha({
+        cargo: x.cargo, quantidade: x.quantidade, escala: lerEscala(x.escala),
+        salario: x.salario ? x.salario.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "",
+      })),
     }));
     setResultado(null);
   };
@@ -90,11 +93,11 @@ export default function Home() {
     setCarregando(true);
     const corpo = {
       limite_horas: limite,
-      salario: Number(salario.replace(/\./g, "").replace(",", ".")) || null,
       linhas: atuais.map((l) => ({
         cargo: l.cargo.trim(),
         escala: escalaTexto(l.escala),
         quantidade: l.quantidade,
+        salario: lerValor(l.salario),
       })),
     };
     const resp = await fetch(config.rota, {
@@ -165,11 +168,6 @@ export default function Home() {
             {total} {modo === "quadro" ? "pessoa(s)" : "posto(s)"} em {atuais.length} linha(s)
           </span>
           <span className="spacer" />
-          <label className="campo-salario">
-            <span className="muted">Salário médio (R$)</span>
-            <input inputMode="decimal" placeholder="Ex.: 2.000,00" value={salario}
-                   onChange={(e) => setSalario(e.target.value.replace(/[^\d.,]/g, ""))} aria-label="Salário médio" />
-          </label>
           <span className="muted">Carga semanal máxima</span>
           <div className="abas abas-compactas" role="radiogroup" aria-label="Carga semanal máxima">
             {([42, 40] as const).map((h) => (

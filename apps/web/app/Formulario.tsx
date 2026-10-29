@@ -2,7 +2,7 @@
 
 import { DIAS_LABEL, Escala, Faixa, Horario, escalaTexto, semana } from "@/lib/escala";
 
-export type Linha = { id: number; cargo: string; escala: Escala; quantidade: number };
+export type Linha = { id: number; cargo: string; escala: Escala; quantidade: number; salario: string };
 
 type Props = {
   linhas: Linha[];
@@ -19,6 +19,7 @@ export const novaLinha = (parcial: Partial<Linha> = {}): Linha => ({
   cargo: "",
   escala: semana(0, 4, "07:30", "17:18"),
   quantidade: 1,
+  salario: "",
   ...parcial,
 });
 
@@ -127,6 +128,18 @@ export default function Formulario({ linhas, onChange, rotulos = ROTULOS, comInt
   const atualizar = (id: number, campos: Partial<Linha>) =>
     onChange(linhas.map((l) => (l.id === id ? { ...l, ...campos } : l)));
 
+  // salário médio é por cargo: vale para todas as linhas do mesmo cargo (escalas diferentes)
+  const mesmoCargo = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase() && a.trim() !== "";
+  const mudarSalario = (id: number, salario: string) => {
+    const cargo = linhas.find((l) => l.id === id)?.cargo ?? "";
+    onChange(linhas.map((l) => (l.id === id || mesmoCargo(l.cargo, cargo) ? { ...l, salario } : l)));
+  };
+  const mudarCargo = (id: number, cargo: string) => {
+    const atual = linhas.find((l) => l.id === id);
+    const salario = atual?.salario || linhas.find((l) => l.id !== id && mesmoCargo(l.cargo, cargo) && l.salario)?.salario || "";
+    atualizar(id, { cargo, salario });
+  };
+
   return (
     <div className="tabela-wrap">
       <table>
@@ -135,13 +148,14 @@ export default function Formulario({ linhas, onChange, rotulos = ROTULOS, comInt
             <th style={{ width: "24%" }}>{rotulos.cargo}</th>
             <th>Horário / escala</th>
             <th className="num" style={{ width: 90 }}>{rotulos.quantidade}</th>
+            <th className="num" style={{ width: 130 }} title="Salário médio mensal do cargo: vale para todas as linhas do mesmo cargo">Salário médio do cargo (R$)</th>
             <th style={{ width: 44 }} />
           </tr>
         </thead>
         <tbody>
           {linhas.length === 0 && (
             <tr>
-              <td colSpan={4} className="muted" style={{ textAlign: "center", padding: "20px 8px" }}>
+              <td colSpan={5} className="muted" style={{ textAlign: "center", padding: "20px 8px" }}>
                 Nenhuma linha ainda. Clique em “+ Adicionar linha” para começar.
               </td>
             </tr>
@@ -150,7 +164,7 @@ export default function Formulario({ linhas, onChange, rotulos = ROTULOS, comInt
             <tr key={l.id}>
               <td>
                 <input value={l.cargo} placeholder={rotulos.exemplo} style={{ width: "100%" }}
-                       onChange={(e) => atualizar(l.id, { cargo: e.target.value })} aria-label={rotulos.cargo} />
+                       onChange={(e) => mudarCargo(l.id, e.target.value)} aria-label={rotulos.cargo} />
               </td>
               <td>
                 <CampoEscala escala={l.escala} comIntervalo={comIntervalo} onChange={(escala) => atualizar(l.id, { escala })} />
@@ -159,6 +173,11 @@ export default function Formulario({ linhas, onChange, rotulos = ROTULOS, comInt
                 <input type="number" min={1} value={l.quantidade} style={{ width: 70, textAlign: "right" }}
                        onChange={(e) => atualizar(l.id, { quantidade: Math.max(1, Number(e.target.value) || 1) })}
                        aria-label={rotulos.quantidade} />
+              </td>
+              <td className="num">
+                <input inputMode="decimal" placeholder="Ex.: 1.850,00" value={l.salario} style={{ width: 110, textAlign: "right" }}
+                       onChange={(e) => mudarSalario(l.id, e.target.value.replace(/[^\d.,]/g, ""))}
+                       aria-label="Salário médio" />
               </td>
               <td>
                 <button className="icone" title="Remover linha" aria-label="Remover linha"

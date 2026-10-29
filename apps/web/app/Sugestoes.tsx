@@ -1,4 +1,4 @@
-import { custo } from "@/lib/moeda";
+import { anual, custo } from "@/lib/moeda";
 import type { Contratacoes, Sugestoes as S, TurnoRevezamento } from "@/lib/types";
 
 function porDia(t: TurnoRevezamento) {
@@ -107,30 +107,44 @@ function Cabecalho({ titulo, total, horas, valor }: { titulo: string; total: num
       <h3 style={{ margin: 0 }}>{titulo}</h3>
       <span className="spacer" />
       <span className="tag">{total} contratação(ões) · {horas}/semana</span>
-      {valor != null && <span className="tag custo">{custo(valor)}/mês</span>}
+      {valor != null && <span className="tag custo">{custo(valor)}/mês · {anual(valor)}/ano</span>}
     </div>
   );
 }
 
+function CardRevezamento({ rev, dias, titulo, descricao }: { rev: S["revezamento"]; dias: string[]; titulo: string; descricao: string }) {
+  return (
+    <div className="card">
+      <Cabecalho titulo={titulo} total={rev.total} horas={rev.horas_semana} valor={rev.custo_mensal} />
+      <p className="muted" style={{ marginTop: 0 }}>{descricao}</p>
+      <ul className="frases">{rev.frases.map((f) => <li key={f}>{f}</li>)}</ul>
+      {rev.turnos.map((t) => <GradeTurno key={t.entrada + t.saida} t={t} dias={dias} />)}
+      {rev.turnos.length > 0 && <p className="muted" style={{ fontSize: 13 }}>T = trabalha; F = folga.</p>}
+      {rev.horistas.total > 0 && <Horistas s={rev.horistas} titulo="Horários dos horistas do revezamento" />}
+    </div>
+  );
+}
+
+// as três formas de cobrir o rombo/demanda (main.sugerir), na ordem em que aparecem no site
+export const ALTERNATIVAS = [
+  { chave: "revezamento_puro", titulo: "Revezamento (escalas iguais)",
+    descricao: "Só equipes 5x2, todas com o mesmo horário no turno e folgas em escadinha, mesmo que a pessoa fique abaixo da carga semanal. Sem horista nem turno quebrado." },
+  { chave: "revezamento", titulo: "Revezamento + horista",
+    descricao: "Equipes 5x2 que aproveitam a carga semanal inteira (emendando no turno ou em turno quebrado); horistas para o que a equipe não cobre." },
+  { chave: "horista", titulo: "Só horista",
+    descricao: "Todos por hora (intermitente), pagando só as horas necessárias." },
+] as const;
+
 export default function Sugestoes({ s, dias, titulo }: { s: S; dias: string[]; titulo: string }) {
-  const rev = s.revezamento;
   return (
     <section>
       <h2>{titulo}</h2>
-      <div className="card">
-        <Cabecalho titulo="1) Revezamento" total={rev.total} horas={rev.horas_semana} valor={rev.custo_mensal} />
-        <p className="muted" style={{ marginTop: 0 }}>
-          Equipes 5x2 por turno, com as folgas em dias seguidos em escadinha; horistas para o que a equipe não cobre.
-        </p>
-        <ul className="frases">{rev.frases.map((f) => <li key={f}>{f}</li>)}</ul>
-        {rev.turnos.map((t) => <GradeTurno key={t.entrada + t.saida} t={t} dias={dias} />)}
-        {rev.turnos.length > 0 && <p className="muted" style={{ fontSize: 13 }}>T = trabalha; F = folga.</p>}
-        <Horistas s={rev.horistas} titulo="Horários dos horistas do revezamento" />
-      </div>
+      <CardRevezamento rev={s.revezamento_puro} dias={dias} titulo={"1) " + ALTERNATIVAS[0].titulo} descricao={ALTERNATIVAS[0].descricao} />
+      <CardRevezamento rev={s.revezamento} dias={dias} titulo={"2) " + ALTERNATIVAS[1].titulo} descricao={ALTERNATIVAS[1].descricao} />
 
       <div className="card">
-        <Cabecalho titulo="2) Horista" total={s.horista.total} horas={s.horista.horas_semana} valor={s.horista.custo_mensal} />
-        <p className="muted" style={{ marginTop: 0 }}>Todos por hora (intermitente), pagando só as horas necessárias.</p>
+        <Cabecalho titulo={"3) " + ALTERNATIVAS[2].titulo} total={s.horista.total} horas={s.horista.horas_semana} valor={s.horista.custo_mensal} />
+        <p className="muted" style={{ marginTop: 0 }}>{ALTERNATIVAS[2].descricao}</p>
         <ul className="frases">{s.horista.frases.map((f) => <li key={f}>{f}</li>)}</ul>
         <Horistas s={s.horista} titulo="Horários por horista" />
       </div>
