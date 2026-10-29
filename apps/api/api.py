@@ -250,7 +250,8 @@ def _config_json():
 
 def _sugestoes_json(r):
     return {"revezamento_puro": _revezamento_json(r["revezamento_puro"]),
-            "revezamento": _revezamento_json(r["revezamento"]), "horista": _horistas_json(r["horista"])}
+            "revezamento": _revezamento_json(r["revezamento"]),
+            "clt_horista": _revezamento_json(r["clt_horista"])}
 
 
 def _opcao_json(estrategia, r, fora):

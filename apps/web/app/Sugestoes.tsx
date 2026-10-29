@@ -130,24 +130,18 @@ export const ALTERNATIVAS = [
   { chave: "revezamento_puro", titulo: "Revezamento (escalas iguais)",
     descricao: "Só equipes 5x2, todas com o mesmo horário no turno e folgas em escadinha, mesmo que a pessoa fique abaixo da carga semanal. Sem horista nem turno quebrado." },
   { chave: "revezamento", titulo: "Revezamento + horista",
-    descricao: "Equipes 5x2 que aproveitam a carga semanal inteira (emendando no turno ou em turno quebrado); horistas para o que a equipe não cobre." },
-  { chave: "horista", titulo: "Só horista",
-    descricao: "Todos por hora (intermitente), pagando só as horas necessárias." },
+    descricao: "Equipes 5x2 que aproveitam a carga semanal inteira (emendando no turno ou em turno quebrado); horistas, com até 80h por mês, para o que a equipe não cobre." },
+  { chave: "clt_horista", titulo: "CLT + horista pontual",
+    descricao: "Equipes 5x2 com a carga do próprio turno, parecida com a de hoje; horistas só para os rombos pontuais que sobram, com até 80h por mês cada." },
 ] as const;
 
 export default function Sugestoes({ s, dias, titulo }: { s: S; dias: string[]; titulo: string }) {
   return (
     <section>
       <h2>{titulo}</h2>
-      <CardRevezamento rev={s.revezamento_puro} dias={dias} titulo={"1) " + ALTERNATIVAS[0].titulo} descricao={ALTERNATIVAS[0].descricao} />
-      <CardRevezamento rev={s.revezamento} dias={dias} titulo={"2) " + ALTERNATIVAS[1].titulo} descricao={ALTERNATIVAS[1].descricao} />
-
-      <div className="card">
-        <Cabecalho titulo={"3) " + ALTERNATIVAS[2].titulo} total={s.horista.total} horas={s.horista.horas_semana} valor={s.horista.custo_mensal} />
-        <p className="muted" style={{ marginTop: 0 }}>{ALTERNATIVAS[2].descricao}</p>
-        <ul className="frases">{s.horista.frases.map((f) => <li key={f}>{f}</li>)}</ul>
-        <Horistas s={s.horista} titulo="Horários por horista" />
-      </div>
+      {ALTERNATIVAS.map((a, i) => (
+        <CardRevezamento key={a.chave} rev={s[a.chave]} dias={dias} titulo={`${i + 1}) ${a.titulo}`} descricao={a.descricao} />
+      ))}
     </section>
   );
 }

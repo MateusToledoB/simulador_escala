@@ -128,7 +128,7 @@ export default function Projecao({ sugestoes, porCargo, rotuloHoras, salario, fa
         Custo = salário x {fator.toLocaleString("pt-BR")} (encargos, 13º e férias); anual = 12 meses.
         {salario != null && <> As contratações usam o salário médio de {moeda(salario)}, ponderado pelos cargos que precisam de reforço;
           por cargo, o impacto é repartido pelas horas de cada um, ao salário do próprio cargo.</>}
-        {" "}Horista: proporcional às horas da semana.
+        {" "}Horista: proporcional às horas da semana, com no máximo 80h por mês.
         {quadro && totalPessoas != null && quadro.pessoas_com_salario < totalPessoas &&
           <> Quadro atual com salário em {quadro.pessoas_com_salario} de {totalPessoas} pessoas.</>}
       </p>

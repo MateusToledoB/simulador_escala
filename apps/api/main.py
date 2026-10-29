@@ -686,12 +686,18 @@ def _aparar(a, b, pecas, falta):
     return partes
 
 
+def horas_semana_horista() -> float:
+    """Teto semanal do horista: HORAS_MENSAIS_HORISTA em um mês médio (52 semanas / 12 meses)."""
+    return settings.HORAS_MENSAIS_HORISTA * 12 / 52
+
+
 def horistas(blocos, com_intervalo=False, turnos=None):
+    """Horistas para os blocos (ou turnos), cada um com até DIAS_MAXIMOS_HORISTA dias e HORAS_MENSAIS_HORISTA por mês."""
     turnos = turnos_do_rombo(blocos) if turnos is None else list(turnos)
     if com_intervalo:  # o posto fica descoberto no intervalo de cada horista: vira um turno para outro horista
         turnos += [(segs[0][1], segs[1][0]) for segs in (turno(*t) for t in turnos)
                    if len(segs) > 1 and segs[1][0] - segs[0][1] >= settings.SLOT]
-    return alocar(turnos, settings.DIAS_MAXIMOS_HORISTA, settings.LIMITE_HORAS_SEMANA)
+    return alocar(turnos, settings.DIAS_MAXIMOS_HORISTA, horas_semana_horista())
 
 
 def _maior_turno(ini, limite):
@@ -738,7 +744,9 @@ def sugerir(blocos, com_intervalo=False, turnos=None, pausas=None):
       revezamento:      equipes 5x2 por turno (revezar), com turnos iguais de até LIMITE_HORAS_SEMANA / DIAS_TRABALHO
                         horas, completadas até LIMITE_HORAS_SEMANA com o que sobra (completar), e horistas para o
                         que as equipes deixam descoberto;
-      horista:          só horistas.
+      clt_horista:      equipes 5x2 por turno com a carga do próprio turno (sem completar) e horistas só para os
+                        rombos pontuais que sobram.
+    Horista nunca é a força principal: só cobre o que a CLT não cobre, com até HORAS_MENSAIS_HORISTA por mês.
     com_intervalo (dimensionamento): o posto precisa de alguém também no intervalo; os turnos do revezamento
     se sobrepõem para cobri-lo (turnos_com_intervalo), e o intervalo que fica descoberto sobra para horistas.
     turnos, pausas: os turnos do revezamento já montados e o início dos intervalos (minimo_de_pessoas).
@@ -752,32 +760,38 @@ def sugerir(blocos, com_intervalo=False, turnos=None, pausas=None):
     else:
         turnos, pausas = turnos_iguais(blocos, limite), {}
     grupos, _ = revezar(turnos)
+    clt, _ = revezar(turnos)
     puros, _ = revezar(turnos, minimo_uteis=1)
-    for g in grupos + puros:
+    for g in grupos + clt + puros:
         ini, fim = g["turno"]
         inicio = pausas.get((ini % 1440, fim - ini))
         if mostrar_intervalo and len(turno(ini, fim)) > 1:
             segs = turno(ini, fim, None, None if inicio is None else ini + inicio)
             g["intervalo"] = (segs[0][1], segs[1][0])
-    linha = Linha()
-    falta = [0] * linha.n
-    for ini, fim in blocos:
-        for s in linha.slots(0, [(ini, fim)]):
-            falta[s] += 1
-    for g in grupos:
-        ini, fim = g["turno"]
-        inicio = pausas.get((ini % 1440, fim - ini))
-        for p in g["pessoas"]:
-            for ini, fim in p["escala"].values():
-                segs = turno(ini, fim, None, None if inicio is None else ini + inicio) if com_intervalo else [(ini, fim)]
-                for seg in segs:
-                    for s in linha.slots(0, [seg]):
-                        falta[s] -= 1
-    sobra = completar(grupos, turnos_do_rombo(blocos_de_falta([max(0, f) for f in falta])))
+
+    def descoberto(equipes):
+        """Turnos do rombo que as equipes 5x2 deixam descobertos (o intervalo conta como descoberto se com_intervalo)."""
+        linha = Linha()
+        falta = [0] * linha.n
+        for ini, fim in blocos:
+            for s in linha.slots(0, [(ini, fim)]):
+                falta[s] += 1
+        for g in equipes:
+            ini, fim = g["turno"]
+            inicio = pausas.get((ini % 1440, fim - ini))
+            for p in g["pessoas"]:
+                for ini, fim in p["escala"].values():
+                    segs = turno(ini, fim, None, None if inicio is None else ini + inicio) if com_intervalo else [(ini, fim)]
+                    for seg in segs:
+                        for s in linha.slots(0, [seg]):
+                            falta[s] -= 1
+        return turnos_do_rombo(blocos_de_falta([max(0, f) for f in falta]))
+
+    sobra = completar(grupos, descoberto(grupos))
     return {
         "revezamento_puro": {"turnos": puros, "horistas": []},
         "revezamento": {"turnos": grupos, "horistas": horistas(None, com_intervalo, sobra)},
-        "horista": horistas(blocos, com_intervalo),
+        "clt_horista": {"turnos": clt, "horistas": horistas(None, com_intervalo, descoberto(clt))},
     }
 
 
@@ -987,11 +1001,14 @@ def imprimir_sugestoes(r):
         print()
         imprimir_horarios(rev["horistas"])
 
-    print(f"\n2) HORISTA: {len(r['horista'])} contratação(ões), todos por hora (intermitente), "
-          f"pagando só as horas do rombo (até {settings.DIAS_MAXIMOS_HORISTA} dias por semana)")
-    for frase in frases_horistas(r["horista"]):
+    clt = r["clt_horista"]
+    print(f"\n2) CLT + HORISTA PONTUAL: {total_revezamento(clt)} contratação(ões): equipes "
+          f"{settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA} com a carga do próprio turno e horistas só para os "
+          f"rombos pontuais (até {settings.HORAS_MENSAIS_HORISTA}h por mês cada)")
+    for frase in [frase_turno(g) for g in clt["turnos"]] + frases_horistas(clt["horistas"]):
         print(f"   {frase}")
-    imprimir_horarios(r["horista"])
+    if clt["horistas"]:
+        imprimir_horarios(clt["horistas"])
 
 
 def imprimir_geral(por_centro):
@@ -1001,7 +1018,7 @@ def imprimir_geral(por_centro):
     for cr, (r, sem_horario) in por_centro.items():
         escala += sum(len(g["pessoas"]) for g in r["revezamento"]["turnos"])
         rev_horistas += len(r["revezamento"]["horistas"])
-        hor += len(r["horista"])
+        hor += total_revezamento(r["clt_horista"])
         for e in r["equipes"]:
             por_cr[cr] += e["quantidade"]
             por_cargo[e["cargo"]] += e["quantidade"]
@@ -1020,7 +1037,7 @@ def imprimir_geral(por_centro):
     print(f"\nContratações para cobrir o rombo:")
     print(f"  1) Revezamento: {escala + rev_horistas} ({escala} em {settings.DIAS_TRABALHO}x{settings.FOLGAS_POR_SEMANA}, "
           f"{rev_horistas} horista(s))")
-    print(f"  2) Horista: {hor}")
+    print(f"  2) CLT + horista pontual: {hor}")
 
 
 def imprimir_cargo(e):

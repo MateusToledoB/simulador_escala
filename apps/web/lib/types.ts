@@ -16,7 +16,7 @@ export type PorCargo = {
   parte: number;
   impacto_revezamento_puro: number | null;
   impacto_revezamento: number | null;
-  impacto_horista: number | null;
+  impacto_clt_horista: number | null;
 };
 
 export type Turno = {
@@ -84,8 +84,9 @@ export type Revezamento = {
   horistas: Contratacoes;
 };
 
-// revezamento_puro: só 5x2 com escalas iguais; revezamento: 5x2 aproveitando a carga + horistas; horista: só horistas
-export type Sugestoes = { revezamento_puro: Revezamento; revezamento: Revezamento; horista: Contratacoes };
+// revezamento_puro: só 5x2 com escalas iguais; revezamento: 5x2 aproveitando a carga + horistas;
+// clt_horista: 5x2 com a carga do turno + horistas pontuais (horista: até 80h por mês)
+export type Sugestoes = { revezamento_puro: Revezamento; revezamento: Revezamento; clt_horista: Revezamento };
 
 export type Config = {
   limite_horas_semana: number;
